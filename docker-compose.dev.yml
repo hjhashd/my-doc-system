@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  doc-system-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: doc-system-dev-container
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=development
+      # 使用IP地址访问，确保OnlyOffice可以正常工作
+      - NEXT_PUBLIC_BASE_URL=http://192.168.3.10:10043
+      - NEXT_PUBLIC_DS_BASE_URL=http://host.docker.internal:10043
+      - BASE_URL=http://192.168.3.10:10043
+      - DS_BASE_URL=http://host.docker.internal:10043
+    volumes:
+      # 挂载源代码，实现热重载
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+      # 挂载上传目录
+      - /home/cqj/my-doc-system-uploads/upload:/app/public/upload
+      - /home/cqj/my-doc-system-uploads/save:/app/public/save
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    command: pnpm dev
