@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,7 +22,6 @@ import {
   AlertCircle,
   Clock,
   Zap,
-  Calculator,
   FileImage,
   Grid3X3,
   Type,
@@ -32,51 +31,64 @@ import {
   Database,
 } from "lucide-react"
 
-const mockDocuments = [
+// 类型定义
+interface Document {
+  id: string;
+  name: string;
+  type: string;
+  uploadDate: string;
+  status: 'completed' | 'processing' | 'pending';
+  size: string;
+  pages: number;
+  elements: {
+    text: number;
+    tables: number;
+    images: number;
+  };
+}
+
+const mockDocuments: Document[] = [
   {
     id: "1",
     name: "财务报告_2024Q1.pdf",
     type: "PDF",
+    uploadDate: "2023-11-15",
     status: "completed",
-    progress: 100,
+    size: "2.4MB",
+    pages: 24,
     elements: {
       text: 45,
-      images: 12,
       tables: 8,
-      formulas: 15,
-      charts: 3,
-      headers: 12,
-      paragraphs: 156,
-      footnotes: 8,
+      images: 12,
     },
-    confidence: 0.95,
-    processingTime: "2.3s",
-    pages: 24,
-    fileSize: "2.4MB",
   },
   {
     id: "2",
     name: "合同文档_供应商协议.docx",
     type: "DOCX",
+    uploadDate: "2023-11-14",
     status: "processing",
-    progress: 67,
-    elements: { text: 23, images: 2, tables: 5, formulas: 0, charts: 0, headers: 5, paragraphs: 80, footnotes: 2 },
-    confidence: 0.88,
-    processingTime: "1.8s",
+    size: "1.2MB",
     pages: 15,
-    fileSize: "1.2MB",
+    elements: {
+      text: 23,
+      tables: 5,
+      images: 2,
+    },
   },
   {
     id: "3",
     name: "技术规格书.xlsx",
     type: "XLSX",
+    uploadDate: "2023-11-13",
     status: "pending",
-    progress: 0,
-    elements: { text: 0, images: 0, tables: 0, formulas: 0, charts: 0, headers: 0, paragraphs: 0, footnotes: 0 },
-    confidence: 0,
-    processingTime: "-",
+    size: "0.8MB",
     pages: 5,
-    fileSize: "0.8MB",
+    elements: {
+      text: 0,
+      tables: 0,
+      images: 0,
+    },
   },
 ]
 
@@ -152,38 +164,7 @@ const mockContentDetails = {
       tableType: "cost_analysis",
     },
   ],
-  formulas: [
-    {
-      id: "f1",
-      content: "ROI = (收益 - 投资) / 投资 × 100%",
-      page: 4,
-      position: { x: 200, y: 300, width: 250, height: 30 },
-      confidence: 0.97,
-      type: "mathematical",
-      variables: ["ROI", "收益", "投资"],
-      complexity: "simple",
-    },
-    {
-      id: "f2",
-      content: "∑(i=1 to n) Xi / n = μ",
-      page: 5,
-      position: { x: 180, y: 400, width: 180, height: 40 },
-      confidence: 0.94,
-      type: "statistical",
-      variables: ["Xi", "n", "μ"],
-      complexity: "medium",
-    },
-    {
-      id: "f3",
-      content: "NPV = ∑(t=0 to T) CFt / (1+r)^t",
-      page: 6,
-      position: { x: 150, y: 250, width: 220, height: 35 },
-      confidence: 0.92,
-      type: "financial",
-      variables: ["NPV", "CFt", "r", "t", "T"],
-      complexity: "complex",
-    },
-  ],
+
   images: [
     {
       id: "i1",
@@ -283,12 +264,11 @@ export function DocumentParsingInterface() {
                         {doc.status === "completed" ? "已完成" : doc.status === "processing" ? "处理中" : "等待中"}
                       </Badge>
                     </div>
-                    {doc.status === "processing" && <Progress value={doc.progress} className="h-2 mb-2" />}
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>
                         {doc.type} • {doc.pages}页
                       </span>
-                      <span>置信度: {(doc.confidence * 100).toFixed(0)}%</span>
+                      <span>{doc.uploadDate}</span>
                     </div>
                   </div>
                 ))}
@@ -313,47 +293,42 @@ export function DocumentParsingInterface() {
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Card className="border-blue-200 bg-blue-50/50">
                     <CardContent className="p-4">
                       <div className="flex items-center space-x-2">
-                        <Type className="w-5 h-5 text-blue-500" />
+                        <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                          <Type className="w-4 h-4 text-white" />
+                        </div>
                         <div>
-                          <p className="text-2xl font-bold">{selectedDoc.elements.text}</p>
-                          <p className="text-xs text-muted-foreground">文本块</p>
+                          <p className="text-2xl font-bold text-blue-600">{selectedDoc.elements.text}</p>
+                          <p className="text-xs text-blue-600/70">文本块</p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card className="border-purple-200 bg-purple-50/50">
                     <CardContent className="p-4">
                       <div className="flex items-center space-x-2">
-                        <Grid3X3 className="w-5 h-5 text-purple-500" />
+                        <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+                          <Grid3X3 className="w-4 h-4 text-white" />
+                        </div>
                         <div>
-                          <p className="text-2xl font-bold">{selectedDoc.elements.tables}</p>
-                          <p className="text-xs text-muted-foreground">表格</p>
+                          <p className="text-2xl font-bold text-purple-600">{selectedDoc.elements.tables}</p>
+                          <p className="text-xs text-purple-600/70">表格</p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card className="border-orange-200 bg-orange-50/50">
                     <CardContent className="p-4">
                       <div className="flex items-center space-x-2">
-                        <Calculator className="w-5 h-5 text-green-500" />
-                        <div>
-                          <p className="text-2xl font-bold">{selectedDoc.elements.formulas}</p>
-                          <p className="text-xs text-muted-foreground">公式</p>
+                        <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+                          <FileImage className="w-4 h-4 text-white" />
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-2">
-                        <FileImage className="w-5 h-5 text-orange-500" />
                         <div>
-                          <p className="text-2xl font-bold">{selectedDoc.elements.images}</p>
-                          <p className="text-xs text-muted-foreground">图片</p>
+                          <p className="text-2xl font-bold text-orange-600">{selectedDoc.elements.images}</p>
+                          <p className="text-xs text-orange-600/70">图片</p>
                         </div>
                       </div>
                     </CardContent>
@@ -371,11 +346,11 @@ export function DocumentParsingInterface() {
                         </div>
                         <div className="flex justify-between">
                           <span>文件大小</span>
-                          <span className="font-medium">{selectedDoc.fileSize}</span>
+                          <span className="font-medium">{selectedDoc.size}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>段落数</span>
-                          <span className="font-medium">{selectedDoc.elements.paragraphs}</span>
+                          <span>上传日期</span>
+                          <span className="font-medium">{selectedDoc.uploadDate}</span>
                         </div>
                       </div>
                     </CardContent>
@@ -399,26 +374,23 @@ export function DocumentParsingInterface() {
                               : "等待处理"}
                         </span>
                       </div>
-                      {selectedDoc.status === "processing" && (
-                        <Progress value={selectedDoc.progress} className="mt-2" />
-                      )}
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <h4 className="font-medium mb-2">质量指标</h4>
+                      <h4 className="font-medium mb-2">内容统计</h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span>整体置信度</span>
-                          <span className="font-medium">{(selectedDoc.confidence * 100).toFixed(1)}%</span>
+                          <span>文本块</span>
+                          <span className="font-medium">{selectedDoc.elements.text}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>处理时间</span>
-                          <span className="font-medium">{selectedDoc.processingTime}</span>
+                          <span>表格</span>
+                          <span className="font-medium">{selectedDoc.elements.tables}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>识别准确率</span>
-                          <span className="font-medium">96.8%</span>
+                          <span>图片</span>
+                          <span className="font-medium">{selectedDoc.elements.images}</span>
                         </div>
                       </div>
                     </CardContent>
@@ -428,23 +400,22 @@ export function DocumentParsingInterface() {
 
               <TabsContent value="content" className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Filter className="w-4 h-4" />
-                    <Label>内容类型筛选</Label>
-                  </div>
-                  <Select value={selectedContentType} onValueChange={setSelectedContentType}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">全部内容</SelectItem>
-                      <SelectItem value="text">文本内容</SelectItem>
-                      <SelectItem value="tables">表格数据</SelectItem>
-                      <SelectItem value="formulas">公式内容</SelectItem>
-                      <SelectItem value="images">图片内容</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                      <div className="flex items-center space-x-2">
+                        <Filter className="w-4 h-4" />
+                        <Label>内容类型筛选</Label>
+                      </div>
+                      <Select value={selectedContentType} onValueChange={setSelectedContentType}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">全部内容</SelectItem>
+                          <SelectItem value="text">文本内容</SelectItem>
+                          <SelectItem value="tables">表格数据</SelectItem>
+                          <SelectItem value="images">图片内容</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                 <ScrollArea className="h-[500px]">
                   <div className="space-y-4">
@@ -457,28 +428,28 @@ export function DocumentParsingInterface() {
                         </h4>
                         <div className="space-y-2">
                           {mockContentDetails.text.map((item) => (
-                            <Card key={item.id}>
+                            <Card key={item.id} className="border-blue-100 bg-blue-50/30">
                               <CardContent className="p-4">
                                 <div className="flex items-start justify-between mb-2">
                                   <div className="flex items-center space-x-2">
-                                    <Badge variant="outline" className="text-xs">
+                                    <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-200">
                                       {item.type === "heading" ? "标题" : item.type === "paragraph" ? "段落" : "脚注"}
                                     </Badge>
-                                    <span className="text-sm text-muted-foreground">
+                                    <span className="text-sm text-blue-600/70">
                                       第{item.page}页 • 置信度 {(item.confidence * 100).toFixed(0)}%
                                     </span>
                                   </div>
                                   <div className="flex items-center space-x-1">
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 hover:bg-blue-100">
                                       <Copy className="w-4 h-4" />
                                     </Button>
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 hover:bg-blue-100">
                                       <Eye className="w-4 h-4" />
                                     </Button>
                                   </div>
                                 </div>
                                 <p className="text-sm mb-2 line-clamp-2">{item.content}</p>
-                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <div className="flex items-center justify-between text-xs text-blue-600/60">
                                   <span>
                                     字体: {item.fontSize}px • {item.fontWeight}
                                   </span>
@@ -501,109 +472,51 @@ export function DocumentParsingInterface() {
                           表格数据 ({mockContentDetails.tables.length})
                         </h4>
                         <div className="space-y-2">
-                          {mockContentDetails.tables.map((table) => (
-                            <Card key={table.id}>
-                              <CardContent className="p-4">
-                                <div className="flex items-start justify-between mb-3">
-                                  <div>
-                                    <h5 className="font-medium">{table.title}</h5>
-                                    <p className="text-sm text-muted-foreground">
-                                      第{table.page}页 • {table.rows}行 × {table.columns}列 • 置信度{" "}
-                                      {(table.confidence * 100).toFixed(0)}%
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center space-x-1">
-                                    <Button variant="ghost" size="sm">
-                                      <Download className="w-4 h-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="sm">
-                                      <ExternalLink className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="border rounded-lg overflow-hidden">
-                                  <table className="w-full text-sm">
-                                    <thead className="bg-muted/50">
-                                      <tr>
-                                        {table.headers.map((header, idx) => (
-                                          <th key={idx} className="px-3 py-2 text-left font-medium">
-                                            {header}
-                                          </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {table.data.slice(0, 3).map((row, idx) => (
-                                        <tr key={idx} className="border-t">
-                                          {row.map((cell, cellIdx) => (
-                                            <td key={cellIdx} className="px-3 py-2">
-                                              {cell}
-                                            </td>
-                                          ))}
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                  {table.data.length > 3 && (
-                                    <div className="px-3 py-2 text-xs text-muted-foreground bg-muted/30">
-                                      还有 {table.data.length - 3} 行数据...
-                                    </div>
-                                  )}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Formula Content */}
-                    {(selectedContentType === "all" || selectedContentType === "formulas") && (
-                      <div>
-                        <h4 className="font-medium mb-3 flex items-center">
-                          <Calculator className="w-4 h-4 mr-2 text-green-500" />
-                          公式内容 ({mockContentDetails.formulas.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {mockContentDetails.formulas.map((formula) => (
-                            <Card key={formula.id}>
+                          {mockContentDetails.tables.map((item) => (
+                            <Card key={item.id} className="border-green-100 bg-green-50/30">
                               <CardContent className="p-4">
                                 <div className="flex items-start justify-between mb-2">
                                   <div className="flex items-center space-x-2">
-                                    <Badge variant="outline" className="text-xs">
-                                      {formula.type === "mathematical"
-                                        ? "数学"
-                                        : formula.type === "statistical"
-                                          ? "统计"
-                                          : "金融"}
+                                    <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-200">
+                                      表格
                                     </Badge>
-                                    <Badge variant="secondary" className="text-xs">
-                                      {formula.complexity === "simple"
-                                        ? "简单"
-                                        : formula.complexity === "medium"
-                                          ? "中等"
-                                          : "复杂"}
-                                    </Badge>
-                                    <span className="text-sm text-muted-foreground">
-                                      第{formula.page}页 • 置信度 {(formula.confidence * 100).toFixed(0)}%
+                                    <span className="text-sm text-green-600/70">
+                                      第{item.page}页 • {item.rows}行 × {item.columns}列 • 置信度 {(item.confidence * 100).toFixed(0)}%
                                     </span>
                                   </div>
                                   <div className="flex items-center space-x-1">
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-100">
                                       <Copy className="w-4 h-4" />
                                     </Button>
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-100">
                                       <Eye className="w-4 h-4" />
                                     </Button>
                                   </div>
                                 </div>
-                                <div className="bg-muted/30 p-3 rounded-lg font-mono text-sm mb-2">
-                                  {formula.content}
+                                <div className="text-sm mb-2 line-clamp-2">
+                                  <div className="grid grid-cols-3 gap-1 text-xs">
+                                    {item.headers.map((header, idx) => (
+                                      <div key={idx} className="font-medium p-1 bg-green-100/50 rounded text-center">
+                                        {header}
+                                      </div>
+                                    ))}
+                                    {item.data.slice(0, 2).map((row, rowIdx) => (
+                                      <>
+                                        {row.map((cell, cellIdx) => (
+                                          <div key={cellIdx} className="p-1 bg-green-50/50 rounded text-center">
+                                            {cell}
+                                          </div>
+                                        ))}
+                                      </>
+                                    ))}
+                                  </div>
                                 </div>
-                                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                  <span>变量: {formula.variables.join(", ")}</span>
+                                <div className="flex items-center justify-between text-xs text-green-600/60">
                                   <span>
-                                    位置: ({formula.position.x}, {formula.position.y})
+                                    位置: ({item.position.x}, {item.position.y})
+                                  </span>
+                                  <span>
+                                    尺寸: {item.position.width} × {item.position.height}
                                   </span>
                                 </div>
                               </CardContent>
@@ -613,6 +526,8 @@ export function DocumentParsingInterface() {
                       </div>
                     )}
 
+
+
                     {/* Image Content */}
                     {(selectedContentType === "all" || selectedContentType === "images") && (
                       <div>
@@ -621,46 +536,40 @@ export function DocumentParsingInterface() {
                           图片内容 ({mockContentDetails.images.length})
                         </h4>
                         <div className="space-y-2">
-                          {mockContentDetails.images.map((image) => (
-                            <Card key={image.id}>
+                          {mockContentDetails.images.map((item) => (
+                            <Card key={item.id} className="border-orange-100 bg-orange-50/30">
                               <CardContent className="p-4">
                                 <div className="flex items-start justify-between mb-2">
-                                  <div>
-                                    <h5 className="font-medium">{image.title}</h5>
-                                    <p className="text-sm text-muted-foreground">
-                                      第{image.page}页 •{" "}
-                                      {image.type === "chart" ? "图表" : image.type === "diagram" ? "图解" : "照片"} •
-                                      置信度 {(image.confidence * 100).toFixed(0)}%
-                                    </p>
+                                  <div className="flex items-center space-x-2">
+                                    <Badge variant="outline" className="text-xs bg-orange-100 text-orange-700 border-orange-200">
+                                      {item.type === "chart" ? "图表" : item.type === "diagram" ? "示意图" : "照片"}
+                                    </Badge>
+                                    <span className="text-sm text-orange-600/70">
+                                      第{item.page}页 • {item.position.width} × {item.position.height} • 置信度 {(item.confidence * 100).toFixed(0)}%
+                                    </span>
                                   </div>
                                   <div className="flex items-center space-x-1">
-                                    <Button variant="ghost" size="sm">
-                                      <Download className="w-4 h-4" />
+                                    <Button variant="ghost" size="sm" className="text-orange-600 hover:text-orange-700 hover:bg-orange-100">
+                                      <Copy className="w-4 h-4" />
                                     </Button>
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="text-orange-600 hover:text-orange-700 hover:bg-orange-100">
                                       <Eye className="w-4 h-4" />
                                     </Button>
                                   </div>
                                 </div>
-                                <div className="bg-muted/30 p-4 rounded-lg mb-2">
-                                  <div className="w-full h-32 bg-gradient-to-br from-muted to-muted/50 rounded flex items-center justify-center">
-                                    <ImageIcon className="w-8 h-8 text-muted-foreground" />
+                                <div className="flex items-center justify-center p-3 bg-orange-100/20 rounded-lg mb-2">
+                                  <div className="text-orange-600/80 text-xs">
+                                    <ImageIcon className="w-12 h-12 mx-auto mb-1" />
+                                    图片预览
                                   </div>
                                 </div>
-                                <p className="text-sm mb-2">{image.description}</p>
-                                <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
-                                  <div>
-                                    <span>格式: {image.format}</span>
-                                    <br />
-                                    <span>分辨率: {image.resolution}</span>
-                                  </div>
-                                  <div>
-                                    <span>
-                                      尺寸: {image.position.width}×{image.position.height}
-                                    </span>
-                                    <br />
-                                    <span>包含文字: {image.hasText ? "是" : "否"}</span>
-                                  </div>
+                                <div className="flex items-center justify-between text-xs text-orange-600/60">
+                                  <span>
+                                    位置: ({item.position.x}, {item.position.y})
+                                  </span>
+                                  <span>
+                                    格式: {item.format}
+                                  </span>
                                 </div>
                               </CardContent>
                             </Card>
@@ -673,80 +582,31 @@ export function DocumentParsingInterface() {
               </TabsContent>
 
               <TabsContent value="export" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="border-blue-100 bg-blue-50/30">
                     <CardHeader>
-                      <CardTitle className="text-lg">分类导出</CardTitle>
-                      <CardDescription>按内容类型分别导出</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <Type className="w-4 h-4 text-blue-500" />
-                            <span className="text-sm">文本内容</span>
-                          </div>
-                          <Button size="sm" variant="outline">
-                            <Download className="w-4 h-4 mr-2" />
-                            导出
-                          </Button>
-                        </div>
-                        <div className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <Grid3X3 className="w-4 h-4 text-purple-500" />
-                            <span className="text-sm">表格数据</span>
-                          </div>
-                          <Button size="sm" variant="outline">
-                            <Download className="w-4 h-4 mr-2" />
-                            导出
-                          </Button>
-                        </div>
-                        <div className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <Calculator className="w-4 h-4 text-green-500" />
-                            <span className="text-sm">公式内容</span>
-                          </div>
-                          <Button size="sm" variant="outline">
-                            <Download className="w-4 h-4 mr-2" />
-                            导出
-                          </Button>
-                        </div>
-                        <div className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <FileImage className="w-4 h-4 text-orange-500" />
-                            <span className="text-sm">图片内容</span>
-                          </div>
-                          <Button size="sm" variant="outline">
-                            <Download className="w-4 h-4 mr-2" />
-                            导出
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">完整导出</CardTitle>
-                      <CardDescription>导出完整的解析结果</CardDescription>
+                      <CardTitle className="text-blue-800">导出设置</CardTitle>
+                      <CardDescription className="text-blue-600/80">
+                        配置文档导出的格式和内容
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div>
                         <Label htmlFor="export-format">导出格式</Label>
                         <Select defaultValue="json">
-                          <SelectTrigger>
-                            <SelectValue />
+                          <SelectTrigger id="export-format">
+                            <SelectValue placeholder="选择导出格式" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="json">JSON (结构化数据)</SelectItem>
-                            <SelectItem value="xml">XML (标记语言)</SelectItem>
-                            <SelectItem value="markdown">Markdown (文档格式)</SelectItem>
-                            <SelectItem value="excel">Excel (表格格式)</SelectItem>
-                            <SelectItem value="pdf">PDF (报告格式)</SelectItem>
+                            <SelectItem value="json">JSON</SelectItem>
+                            <SelectItem value="csv">CSV</SelectItem>
+                            <SelectItem value="excel">Excel</SelectItem>
+                            <SelectItem value="pdf">PDF</SelectItem>
+                            <SelectItem value="xml">XML</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
+                      <div>
                         <Label>包含内容</Label>
                         <div className="space-y-2">
                           <div className="flex items-center space-x-2">
@@ -767,10 +627,57 @@ export function DocumentParsingInterface() {
                           </div>
                         </div>
                       </div>
-                      <Button className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        导出完整结果
-                      </Button>
+                      <div className="pt-2">
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                          <Download className="w-4 h-4 mr-2" />
+                          导出解析结果
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-green-100 bg-green-50/30">
+                    <CardHeader>
+                      <CardTitle className="text-green-800">导出历史</CardTitle>
+                      <CardDescription className="text-green-600/80">
+                        查看和管理之前的导出记录
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-2 bg-green-50/50 rounded">
+                          <div>
+                            <p className="text-sm font-medium text-green-800">完整解析结果</p>
+                            <p className="text-xs text-green-600/70">
+                              JSON格式 • 2023-11-15 14:32
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-100">
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between p-2 bg-green-50/50 rounded">
+                          <div>
+                            <p className="text-sm font-medium text-green-800">表格数据</p>
+                            <p className="text-xs text-green-600/70">
+                              CSV格式 • 2023-11-15 10:15
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-100">
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between p-2 bg-green-50/50 rounded">
+                          <div>
+                            <p className="text-sm font-medium text-green-800">文本内容</p>
+                            <p className="text-xs text-green-600/70">
+                              TXT格式 • 2023-11-14 16:45
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-100">
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
@@ -837,16 +744,6 @@ export function DocumentParsingInterface() {
                             <div>
                               <p className="text-sm font-medium">表格数据</p>
                               <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.tables} 个表格</p>
-                            </div>
-                          </div>
-                          <Switch defaultChecked />
-                        </div>
-                        <div className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <Calculator className="w-4 h-4 text-green-500" />
-                            <div>
-                              <p className="text-sm font-medium">公式内容</p>
-                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.formulas} 个公式</p>
                             </div>
                           </div>
                           <Switch defaultChecked />

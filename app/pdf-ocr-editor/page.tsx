@@ -3,29 +3,33 @@
 import { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Progress } from "@/components/ui/progress"
 import { 
   FileText, 
-  Download, 
-  Save, 
   ZoomIn, 
   ZoomOut, 
   RotateCw,
-  ChevronLeft,
-  ChevronRight,
   RefreshCw,
   AlertCircle,
-  CheckCircle,
   Edit3,
   Maximize2,
   Minimize2,
-  Loader2
+  Loader2,
+  Layout,
+  PanelLeft,
+  PanelRight,
+  ChevronLeft,
+  Download,
+  ArrowRight
 } from "lucide-react"
 import http from '@/lib/http'
+import Link from "next/link"
 
+// ==========================================
+// 类型定义
+// ==========================================
 interface PDFPreviewProps {
   fileUrl: string
   fileName: string
@@ -37,18 +41,17 @@ interface OnlyOfficeEditorProps {
   callbackUrl?: string
 }
 
-
-
+// ==========================================
+// 组件：PDF 预览器 (左侧)
+// ==========================================
 function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [zoom, setZoom] = useState(100) // 恢复默认缩放比例为100%
+  const [zoom, setZoom] = useState(100)
   const [rotation, setRotation] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
 
-  // 加载状态处理
   const handleIframeLoad = () => {
     setIsLoading(false)
     setError(null)
@@ -59,7 +62,6 @@ function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
     setError("无法加载PDF文件，请检查文件是否有效")
   }
 
-  // 重新加载
   const handleReload = () => {
     setIsLoading(true)
     setError(null)
@@ -68,30 +70,11 @@ function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
     }
   }
 
-  // 缩放控制
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 25, 200))
-  }
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 25, 200))
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 25, 25))
+  const handleRotate = () => setRotation(prev => (prev + 90) % 360)
+  const toggleFullscreen = () => setIsFullscreen(!isFullscreen)
 
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev - 25, 25))
-  }
-
-  const handleZoomReset = () => {
-    setZoom(100) // 重置为默认100%
-  }
-
-  // 旋转控制
-  const handleRotate = () => {
-    setRotation(prev => (prev + 90) % 360)
-  }
-
-  // 全屏切换
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen)
-  }
-
-  // 更新iframe参数
   useEffect(() => {
     if (iframeRef.current && fileUrl) {
       const pdfUrl = `${fileUrl}#zoom=${zoom}&rotation=${rotation}`
@@ -100,69 +83,84 @@ function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
   }, [fileUrl, zoom, rotation])
 
   return (
-    <Card className={`h-full flex flex-col ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-      <CardHeader className={`${isFullscreen ? 'flex-shrink-0' : ''} pb-3`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <FileText className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">PDF 预览</CardTitle>
+    <Card className={`h-full flex flex-col border-0 shadow-sm overflow-hidden transition-all duration-300 ${isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'rounded-xl ring-1 ring-border/50'}`}>
+      {/* 顶部工具栏 - 模拟专业软件的Header */}
+      <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <div className="p-1.5 bg-red-50 rounded-md text-red-600">
+            <FileText className="w-4 h-4" />
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleZoomOut}>
-              <ZoomOut className="w-4 h-4" />
-            </Button>
-            <span className="text-sm font-medium min-w-[50px] text-center">{zoom}%</span>
-            <Button variant="outline" size="sm" onClick={handleZoomIn}>
-              <ZoomIn className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleRotate}>
-              <RotateCw className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={toggleFullscreen}>
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </Button>
-            {error && (
-              <Button variant="outline" size="sm" onClick={handleReload}>
-                <RefreshCw className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
+          <span className="truncate max-w-[200px] text-foreground" title={fileName}>PDF预览</span>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 p-0 overflow-hidden" ref={containerRef}>
-        <div className="relative w-full h-full bg-white">
+
+        {/* 中间悬浮感工具条 */}
+        <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 border border-border/50">
+          <Button variant="ghost" size="icon" className="h-7 w-7 hover:bg-white hover:shadow-sm rounded-md" onClick={handleZoomOut}>
+            <ZoomOut className="w-3.5 h-3.5" />
+          </Button>
+          <span className="text-xs font-mono w-10 text-center text-muted-foreground select-none">{zoom}%</span>
+          <Button variant="ghost" size="icon" className="h-7 w-7 hover:bg-white hover:shadow-sm rounded-md" onClick={handleZoomIn}>
+            <ZoomIn className="w-3.5 h-3.5" />
+          </Button>
+          <Separator orientation="vertical" className="h-4 mx-1" />
+          <Button variant="ghost" size="icon" className="h-7 w-7 hover:bg-white hover:shadow-sm rounded-md" onClick={handleRotate}>
+            <RotateCw className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {error && (
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={handleReload}>
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-secondary" onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+
+      <CardContent className="flex-1 p-0 relative bg-muted/30 overflow-hidden group">
+        {/* 背景点状纹理 - 增加层次感 */}
+        <div className="absolute inset-0 opacity-[0.4]" 
+             style={{ 
+               backgroundImage: 'radial-gradient(var(--border) 1px, transparent 1px)', 
+               backgroundSize: '20px 20px' 
+             }} 
+        />
+
+        <div className="relative w-full h-full overflow-auto flex items-center justify-center p-6">
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                <p className="text-sm text-muted-foreground">正在加载PDF...</p>
-              </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm z-20">
+              <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
+              <p className="text-sm text-muted-foreground">正在渲染文档...</p>
             </div>
           )}
           
           {error ? (
-            <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">加载失败</h3>
-              <p className="text-sm text-gray-500 mb-4">{error}</p>
-              <Button onClick={handleReload} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                重新加载
+            <div className="flex flex-col items-center justify-center p-6 text-center bg-white rounded-lg shadow-sm border max-w-sm">
+              <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mb-3">
+                <AlertCircle className="h-6 w-6 text-red-500" />
+              </div>
+              <h3 className="font-medium text-foreground mb-1">预览失败</h3>
+              <p className="text-xs text-muted-foreground mb-4">{error}</p>
+              <Button onClick={handleReload} variant="outline" size="sm" className="gap-2">
+                <RefreshCw className="w-3 h-3" /> 重试
               </Button>
             </div>
           ) : (
             <iframe
               ref={iframeRef}
               src={fileUrl}
-              className="w-full h-full border-0"
+              className="w-full h-full bg-white shadow-lg transition-all duration-300 ease-out rounded-sm border border-border/50"
               title={`PDF预览: ${fileName}`}
               onLoad={handleIframeLoad}
               onError={handleIframeError}
               style={{ 
                 transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-                transformOrigin: 'center',
-                transition: 'transform 0.3s ease',
-                minHeight: '100%'
+                transformOrigin: 'center top',
+                maxWidth: '100%',
+                maxHeight: '100%'
               }}
             />
           )}
@@ -172,11 +170,15 @@ function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
   )
 }
 
+// ==========================================
+// 组件：OnlyOffice 编辑器 (右侧)
+// ==========================================
 function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const editorRef = useRef<any>(null)
+
   const makeKeyFromUrl = (url: string) => {
     let h = 0
     for (let i = 0; i < url.length; i++) {
@@ -192,39 +194,28 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
     setError(null)
 
     if (!docUrl) {
-      setError('缺少文档URL（docUrl）')
+      setError('缺少文档URL')
       setIsLoading(false)
       return
     }
 
     const fileExt = docUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || 'docx'
     const title = docName || docUrl.split('/').pop() || `文档-${Date.now()}`
-    const cbUrl = callbackUrl || '/onlyoffice-callback'
-
-    // --- 开始：添加这段新逻辑 ---
-
-    // 1. 定义可编辑的类型
-    const EDITABLE_TYPES = ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt']
-    // 2. 检查当前文件是否可编辑
-   const isEditable = EDITABLE_TYPES.includes(fileExt);
-// [!! 修复 !!] 确保 PDF 也使用 'edit' 模式来触发转换
-const editorMode = (isEditable || fileExt === 'pdf') ? 'edit' : 'view';
-
-    // 4. 动态设置编辑器类型
-    let docType = 'word'; // 默认是 Word
-    if (['xlsx', 'xls', 'csv'].includes(fileExt)) {
-      docType = 'spreadsheet';
-    } else if (['pptx', 'ppt'].includes(fileExt)) {
-      docType = 'presentation';
-    }
-    // --- 结束：新逻辑 ---
+    
+    // 关键逻辑：PDF 使用 edit 模式触发转换，其他 Office 格式也用 edit
+    const isEditable = ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'].includes(fileExt)
+    const editorMode = (isEditable || fileExt === 'pdf') ? 'edit' : 'view'
+    
+    let docType = 'word'
+    if (['xlsx', 'xls', 'csv'].includes(fileExt)) docType = 'spreadsheet'
+    else if (['pptx', 'ppt'].includes(fileExt)) docType = 'presentation'
     
     const init = () => {
       try {
         // @ts-ignore
         const DocsAPI = (window as any).DocsAPI
         if (!DocsAPI) {
-          setError('OnlyOffice API 未加载')
+          setError('OnlyOffice API 加载失败')
           setIsLoading(false)
           return
         }
@@ -233,51 +224,40 @@ const editorMode = (isEditable || fileExt === 'pdf') ? 'edit' : 'view';
           editorRef.current = null
         }
         
-        // 确保文档URL和回调URL都是公网可访问的
         const publicDocUrl = docUrl.startsWith('http') ? docUrl : `${window.location.origin}${docUrl}`
-        
-        // 修复回调URL，确保它使用正确的主机地址
-        let publicCallbackUrl = callbackUrl.startsWith('http') ? callbackUrl : `${window.location.origin}${callbackUrl}`
-        
-        // 如果回调URL是相对路径，确保使用当前页面的协议和主机
-        if (!publicCallbackUrl.startsWith('http')) {
+        let publicCallbackUrl = callbackUrl?.startsWith('http') ? callbackUrl : `${window.location.origin}${callbackUrl}`
+        if (!publicCallbackUrl?.startsWith('http')) {
           publicCallbackUrl = `${window.location.protocol}//${window.location.host}${callbackUrl}`
         }
         
-        // 添加调试日志
-        console.log('OnlyOffice Editor Config:', {
-          docUrl: publicDocUrl,
-          callbackUrl: publicCallbackUrl,
-          windowLocation: {
-            origin: window.location.origin,
-            host: window.location.host,
-            hostname: window.location.hostname,
-            protocol: window.location.protocol
-          }
-        })
-        
-       const config = {
-        document: {
-          fileType: fileExt,
-          key: `doc-${makeKeyFromUrl(docUrl)}-${Date.now()}`, // 确保你有 makeKeyFromUrl 函数
-          title,
-          url: publicDocUrl // (这里就是我之前打错 "_" 符号的地方，保持这行原样)
-        },
-        documentType: docType, // <-- ★★★ 修改点 1：使用变量 docType
-        editorConfig: {
-          mode: editorMode, // <-- ★★★ 修改点 2：使用变量 editorMode
-          callbackUrl: publicCallbackUrl,
-          customization: {
-            spellcheck: false, // 关闭拼写检查，避免文字下方出现红线
-            review: {
-              hideReviewDisplay: true, // 隐藏修订显示
-              hideReviewChanges: false, // 保留修订功能但不在编辑时显示
-              trackChanges: false, // 关闭修订跟踪
-              hoverMode: false // 关闭悬停模式
+        const config = {
+          document: {
+            fileType: fileExt,
+            key: `doc-${makeKeyFromUrl(docUrl)}-${Date.now()}`,
+            title,
+            url: publicDocUrl
+          },
+          documentType: docType,
+          editorConfig: {
+            mode: editorMode,
+            callbackUrl: publicCallbackUrl,
+            lang: "zh-CN",
+            customization: {
+              // 界面定制：让它看起来更像我们系统的一部分
+              compactHeader: true,
+              toolbarNoTabs: false,
+              forcesave: true,
+              goback: false,
+              chat: false,
+              comments: true,
+              zoom: 100,
+              logo: {
+                image: "",
+                imageEmbedded: ""
+              }
             }
           }
         }
-      };
         // @ts-ignore
         editorRef.current = new DocsAPI.DocEditor('onlyoffice-editor-container', config)
         setIsLoading(false)
@@ -287,29 +267,25 @@ const editorMode = (isEditable || fileExt === 'pdf') ? 'edit' : 'view';
       }
     }
 
-    // 加载 DocsAPI 脚本（来源于文档服务器）
-    // 如需修改地址，可通过 query 参数 docsApi 指定
-   // 这段代码的意思是：如果浏览器地址栏是 192.168.3.10，我就去 192.168.3.10:8082 找服务
-const defaultApi = typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8082/web-apps/apps/api/documents/api.js`
-    : 'http://localhost:8082/web-apps/apps/api/documents/api.js';
+    const defaultApi = typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.hostname}:8082/web-apps/apps/api/documents/api.js`
+      : 'http://localhost:8082/web-apps/apps/api/documents/api.js'
     
-    const docsApi = defaultApi
-    // 已加载则直接初始化
     // @ts-ignore
     if ((window as any).DocsAPI) {
       init()
       return
     }
+    
     let scriptEl = document.querySelector('script[data-onlyoffice-api]') as HTMLScriptElement | null
     if (!scriptEl) {
       scriptEl = document.createElement('script')
       scriptEl.type = 'text/javascript'
-      scriptEl.src = docsApi
+      scriptEl.src = defaultApi
       scriptEl.setAttribute('data-onlyoffice-api', 'true')
       scriptEl.onload = init
       scriptEl.onerror = () => {
-        setError('无法加载 OnlyOffice API 脚本')
+        setError('无法连接到文档服务器，请检查网络或配置')
         setIsLoading(false)
       }
       document.head.appendChild(scriptEl)
@@ -319,7 +295,7 @@ const defaultApi = typeof window !== 'undefined'
 
     return () => {
       try {
-        if (editorRef.current && typeof editorRef.current.destroyEditor === 'function') {
+        if (editorRef.current?.destroyEditor) {
           editorRef.current.destroyEditor()
         }
       } catch {}
@@ -328,394 +304,345 @@ const defaultApi = typeof window !== 'undefined'
   }, [docUrl, docName, callbackUrl])
 
   return (
-    <Card className={`h-full flex flex-col ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Edit3 className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">Word 文档编辑</CardTitle>
+    <Card className={`h-full flex flex-col border-0 shadow-sm overflow-hidden transition-all duration-300 ${isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'rounded-xl ring-1 ring-border/50'}`}>
+      <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <div className="p-1.5 bg-blue-50 rounded-md text-blue-600">
+            <Edit3 className="w-4 h-4" />
           </div>
-          <div className="flex items-center space-x-2">
-            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">OnlyOffice</Badge>
-            <Button variant="outline" size="sm" onClick={toggleFullscreen}>
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </Button>
+          <span className="text-foreground">文档编辑</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="h-6 px-2 font-normal bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200/50">
+            OnlyOffice 协作中
+          </Badge>
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-secondary" onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+      
+      <CardContent className="flex-1 p-0 relative bg-white">
+        {isLoading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 backdrop-blur-[1px]">
+            <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
+            <p className="text-xs font-medium text-muted-foreground animate-pulse">正在初始化编辑器...</p>
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 p-0 overflow-hidden">
-        <div className="relative w-full h-full bg-white">
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                <p className="text-sm text-muted-foreground">正在加载OnlyOffice编辑器...</p>
-              </div>
+        )}
+        {error ? (
+          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="h-8 w-8 text-red-500" />
             </div>
-          )}
-          {error ? (
-            <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">加载失败</h3>
-              <p className="text-sm text-gray-500 mb-4">{error}</p>
-            </div>
-          ) : (
-            <div id="onlyoffice-editor-container" className="w-full h-full" />
-          )}
-        </div>
+            <h3 className="text-base font-medium text-foreground mb-1">编辑器加载失败</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-xs">{error}</p>
+          </div>
+        ) : (
+          <div id="onlyoffice-editor-container" className="w-full h-full" />
+        )}
       </CardContent>
     </Card>
   )
 }
 
+// ==========================================
+// 页面主组件
+// ==========================================
 export default function PDFOCREditorPage() {
   const searchParams = useSearchParams()
-  const [fileData, setFileData] = useState({
-    fileName: "",
-    fileUrl: ""
-  })
-  const [docUrl, setDocUrl] = useState<string>("")
-  const [docName, setDocName] = useState<string>("")
-  const [callbackUrl, setCallbackUrl] = useState<string>("/onlyoffice-callback")
+  const [fileData, setFileData] = useState({ fileName: "", fileUrl: "" })
+  const [docUrl, setDocUrl] = useState("")
+  const [docName, setDocName] = useState("")
+  const [callbackUrl, setCallbackUrl] = useState("/onlyoffice-callback")
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'split' | 'pdf' | 'editor'>('split')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  
-  // 新增状态管理
   const [apiError, setApiError] = useState<string | null>(null)
-  const [docStatus, setDocStatus] = useState<number | null>(null)
-  const [docStatusMessage, setDocStatusMessage] = useState<string>("")
+  const [docStatusMessage, setDocStatusMessage] = useState("")
   const [isPolling, setIsPolling] = useState(false)
   
-  // 新增一个判断：使用原始文件名判断是否为PDF
   const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
-  
-  // 新增一个判断：使用原始文件URL判断是否为PDF文件
   const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
   
-  // 监听侧边栏切换事件
+  // 监听 Sidebar 状态
   useEffect(() => {
-    const handleToggleSidebar = () => {
-      setSidebarCollapsed(prev => !prev)
-    }
-
+    const handleToggleSidebar = () => setSidebarCollapsed(prev => !prev)
     window.addEventListener('toggleSidebar', handleToggleSidebar)
-    
-    return () => {
-      window.removeEventListener('toggleSidebar', handleToggleSidebar)
-    }
+    return () => window.removeEventListener('toggleSidebar', handleToggleSidebar)
   }, [])
 
-  // 从URL参数获取文件信息
-    useEffect(() => {
-      const fileName = searchParams.get('fileName') || ""
-      const fileUrlParam = searchParams.get('fileUrl') || ""
-      const docUrlParam = searchParams.get('docUrl') || ""
-      const docNameParam = searchParams.get('docName') || (docUrlParam ? (docUrlParam.split('/').pop() || "") : "")
-      const cbUrlParam = searchParams.get('callbackUrl') || "/onlyoffice-callback"
-      const localUrlParam = searchParams.get('localUrl') || ""
-      
-      // 获取用户ID和任务ID参数
-      const agentUserIdParam = searchParams.get('agentUserId') || ""
-      const taskIdParam = searchParams.get('taskId') || ""
-      
-      // 如果没有文件名，但有docUrl，尝试从docUrl中提取文件名
-      const finalFileName = fileName || docNameParam || (docUrlParam ? docUrlParam.split('/').pop() || "" : "")
-      
-      // 确定原始文件URL
-      // 1. 优先使用URL参数中的fileUrl
-      // 2. 如果没有，使用URL参数中的localUrl
-      // 3. 如果都没有，尝试构建PDF文件URL
-      let originalFileUrl = fileUrlParam || localUrlParam
-      
-      // 如果没有fileUrl和localUrl参数，尝试构建文件URL
-      if (!originalFileUrl && agentUserIdParam && taskIdParam && finalFileName) {
-        const publicBase = process.env.NEXT_PUBLIC_BASE_URL || ''
-        originalFileUrl = `${publicBase}/upload/${agentUserIdParam}/${taskIdParam}/${encodeURIComponent(finalFileName)}`
-      }
-      
-      // 如果还是没有文件URL，使用默认的PDF文件
-      const finalFileUrl = originalFileUrl || `/files/upload/dummy.pdf`
+  // 初始化数据加载
+  useEffect(() => {
+    const params = {
+      fileName: searchParams.get('fileName') || "",
+      fileUrl: searchParams.get('fileUrl') || "",
+      docUrl: searchParams.get('docUrl') || "",
+      docName: searchParams.get('docName') || "",
+      callbackUrl: searchParams.get('callbackUrl') || "/onlyoffice-callback",
+      localUrl: searchParams.get('localUrl') || "",
+      agentUserId: searchParams.get('agentUserId') || "",
+      taskId: searchParams.get('taskId') || ""
+    }
 
-    setFileData({
-      fileName: finalFileName,
-      fileUrl: finalFileUrl
-    })
+    // 智能推断文件名和URL
+    const finalFileName = params.fileName || params.docName || (params.docUrl ? params.docUrl.split('/').pop() || "" : "")
+    let originalFileUrl = params.fileUrl || params.localUrl
+    
+    if (!originalFileUrl && params.agentUserId && params.taskId && finalFileName) {
+      const publicBase = process.env.NEXT_PUBLIC_BASE_URL || ''
+      originalFileUrl = `${publicBase}/upload/${params.agentUserId}/${params.taskId}/${encodeURIComponent(finalFileName)}`
+    }
+    const finalFileUrl = originalFileUrl || `/files/upload/dummy.pdf`
 
-    const tryFetchDocUrl = async () => {
+    setFileData({ fileName: finalFileName, fileUrl: finalFileUrl })
+
+    // 异步获取文档 URL 逻辑
+    const fetchDocUrl = async () => {
       try {
-        // 重置错误状态
         setApiError(null)
         
-        if (agentUserIdParam && taskIdParam) {
-          // 轮询获取文档URL，直到文档处理完成
-          const pollForDocUrl = async () => {
-            setIsPolling(true)
-            let attempts = 0
-            const maxAttempts = 30 // 最多轮询30次
-            const pollInterval = 3000 // 每3秒轮询一次
-            
-            const poll = async (): Promise<void> => {
-              attempts++
-              
-              try {
-                const res = await http.get('/api/onlyoffice-docurl', {
-                  params: {
-                    agentUserId: agentUserIdParam,
-                    taskId: taskIdParam,
-                    fileName: fileName
-                  }
-                })
+        // 场景1：有任务ID，需要轮询状态
+        if (params.agentUserId && params.taskId) {
+          setIsPolling(true)
+          let attempts = 0
+          const maxAttempts = 30
+          
+          const poll = async () => {
+            attempts++
+            try {
+              const res = await http.get('/api/onlyoffice-docurl', {
+                params: {
+                  agentUserId: params.agentUserId,
+                  taskId: params.taskId,
+                  fileName: params.fileName
+                }
+              })
 
-                if (res && res.ok) {
-                  // 文档处理成功
-                  setDocUrl(res.docUrl || '')
-                  setDocName(res.docName || '')
-                  setCallbackUrl(res.callbackUrl || cbUrlParam)
-                  // 对于PDF文件，默认使用分屏视图，这样用户可以对照着编辑
-                  // 使用文件URL判断是否为PDF，而不是仅依赖文件名
-                  if (finalFileName.toLowerCase().endsWith('.pdf') || originalFileUrl.toLowerCase().includes('.pdf')) {
-                    setViewMode('split')
-                  } else {
-                    setViewMode('editor')
-                  }
-                  setDocStatus(0)
-                  setDocStatusMessage('文档处理成功')
-                  setIsPolling(false)
-                  setIsLoading(false) // 文档处理完成，设置加载完成
-                  return
-                } else if (res && res.processing) {
-                  // 文档正在处理中
-                  setDocStatus(res.status)
-                  setDocStatusMessage(res.message || '文档处理中...')
-                  setIsLoading(false) // 显示处理状态后，关闭初始加载状态
-                  
-                  // 继续轮询
-                  if (attempts < maxAttempts) {
-                    setTimeout(poll, pollInterval)
-                  } else {
-                    // 超过最大轮询次数
-                    setApiError('文档处理超时，请稍后再试')
-                    setIsPolling(false)
-                    setIsLoading(false)
-                  }
+              if (res?.ok) {
+                setDocUrl(res.docUrl || '')
+                setDocName(res.docName || '')
+                setCallbackUrl(res.callbackUrl || params.callbackUrl)
+                
+                // 自动判断最佳视图模式
+                if (finalFileName.toLowerCase().endsWith('.pdf') || originalFileUrl.toLowerCase().includes('.pdf')) {
+                  setViewMode('split')
                 } else {
-                  // 其他错误
-                  setApiError(res.message || '获取文档URL失败')
+                  setViewMode('editor')
+                }
+                
+                setIsPolling(false)
+                setIsLoading(false)
+                return
+              } 
+              
+              if (res?.processing) {
+                setDocStatusMessage(res.message || '正在智能处理文档...')
+                if (attempts < maxAttempts) {
+                  setTimeout(poll, 3000)
+                } else {
+                  setApiError('文档处理超时，请检查后端服务')
                   setIsPolling(false)
                   setIsLoading(false)
                 }
-              } catch (error) {
-                console.error('轮询文档URL失败:', error)
-                if (attempts >= maxAttempts) {
-                  setApiError('无法获取文档URL，请检查网络连接')
-                  setIsPolling(false)
-                  setIsLoading(false)
-                } else {
-                  // 继续尝试
-                  setTimeout(poll, pollInterval)
-                }
+              } else {
+                setApiError(res?.message || '获取文档失败')
+                setIsPolling(false)
+                setIsLoading(false)
+              }
+            } catch (err) {
+              console.error('轮询失败:', err)
+              if (attempts < maxAttempts) setTimeout(poll, 3000)
+              else {
+                setApiError('网络连接不稳定，请重试')
+                setIsPolling(false)
+                setIsLoading(false)
               }
             }
-            
-            // 开始轮询
-            await poll()
           }
+          await poll()
+        } 
+        // 场景2：直接打开文档
+        else {
+          setDocUrl(params.docUrl)
+          setDocName(params.docName || (params.docUrl ? params.docUrl.split('/').pop() : ""))
           
-          await pollForDocUrl()
-        } else {
-          // 没有agentUserId和taskId，使用默认处理
-          setDocUrl(docUrlParam)
-          setDocName(docNameParam)
-
-          let finalCallbackUrl = cbUrlParam
-          if (docNameParam) {
-            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}fileName=${encodeURIComponent(docNameParam)}`
-          }
-          if (agentUserIdParam) {
-            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}agentUserId=${encodeURIComponent(agentUserIdParam)}`
-          }
-          if (taskIdParam) {
-            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}taskId=${encodeURIComponent(taskIdParam)}`
-          }
-          setCallbackUrl(finalCallbackUrl)
-
-          const isOfficeDoc = docNameParam.toLowerCase().endsWith('.docx') || 
-                              docNameParam.toLowerCase().endsWith('.xlsx') || 
-                              docNameParam.toLowerCase().endsWith('.pptx')
-          setViewMode(isOfficeDoc ? 'editor' : 'split')
-          setIsLoading(false) // 非轮询情况，直接设置加载完成
+          let finalCallback = params.callbackUrl
+          // 简单的参数拼接逻辑...
+          
+          const isOffice = ['.docx', '.xlsx', '.pptx'].some(ext => finalFileName.toLowerCase().endsWith(ext))
+          setViewMode(isOffice ? 'editor' : 'split')
+          setIsLoading(false)
         }
       } catch (err) {
-        console.error('获取文档URL失败:', err)
-        setApiError(`获取文档URL失败: ${err instanceof Error ? err.message : String(err)}`)
-        
-        // 设置默认值作为后备
-        setDocUrl(docUrlParam)
-        setDocName(docNameParam)
-
-        let finalCallbackUrl = cbUrlParam
-        if (docNameParam) {
-          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}fileName=${encodeURIComponent(docNameParam)}`
-        }
-        if (agentUserIdParam) {
-          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}agentUserId=${encodeURIComponent(agentUserIdParam)}`
-        }
-        if (taskIdParam) {
-          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}taskId=${encodeURIComponent(taskIdParam)}`
-        }
-        setCallbackUrl(finalCallbackUrl)
-
-        const isOfficeDoc = docNameParam.toLowerCase().endsWith('.docx') || 
-                              docNameParam.toLowerCase().endsWith('.xlsx') || 
-                              docNameParam.toLowerCase().endsWith('.pptx')
-        setViewMode(isOfficeDoc ? 'editor' : 'split')
-        setIsLoading(false) // 错误情况，设置加载完成
+        console.error('加载失败:', err)
+        setApiError('初始化失败')
+        setIsLoading(false)
       }
     }
 
-    tryFetchDocUrl()
+    fetchDocUrl()
   }, [searchParams])
 
+  // 全局加载状态
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-white">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">
-            {isPolling ? '正在处理文档，请稍候...' : '正在加载文档...'}
-          </p>
-          {isPolling && docStatusMessage && (
-            <p className="text-sm text-muted-foreground mt-2">{docStatusMessage}</p>
-          )}
+      <div className="flex flex-col items-center justify-center h-screen bg-muted/30">
+        <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-2xl shadow-lg border animate-in fade-in duration-500">
+          <div className="relative w-16 h-16 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full border-4 border-primary/10"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+            <FileText className="w-6 h-6 text-primary" />
+          </div>
+          <div className="text-center space-y-1">
+            <h3 className="font-semibold text-lg text-foreground">正在准备工作台</h3>
+            <p className="text-sm text-muted-foreground">
+              {isPolling ? docStatusMessage || '正在进行智能解析...' : '正在加载资源...'}
+            </p>
+          </div>
         </div>
       </div>
     )
   }
 
-  // 显示API错误
+  // 错误状态
   if (apiError) {
     return (
-      <div className="flex items-center justify-center h-screen bg-white">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">加载失败</h3>
-              <p className="text-muted-foreground mb-4">{apiError}</p>
-              <Button onClick={() => window.location.reload()}>
-                重新加载
-              </Button>
+      <div className="flex items-center justify-center h-screen bg-muted/30">
+        <Card className="w-full max-w-md shadow-xl border-destructive/20">
+          <CardContent className="pt-8 pb-8 flex flex-col items-center text-center gap-4">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-destructive" />
             </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">出错了</h3>
+              <p className="text-muted-foreground text-sm px-4">{apiError}</p>
+            </div>
+            <Button onClick={() => window.location.reload()} className="gap-2 pl-4 pr-5">
+              <RefreshCw className="w-4 h-4" />
+              重新加载
+            </Button>
           </CardContent>
         </Card>
       </div>
     )
   }
 
+  // 主界面
   return (
-    <div className="min-h-screen bg-white">
-      {/* 简洁的页面头部 */}
-      <div className="border-b px-4 md:px-6 py-4 bg-white">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <FileText className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-semibold text-gray-900">文档编辑器</h1>
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-            <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-              {fileData.fileName}
-            </Badge>
-            
-            {/* 显示文档处理状态 */}
-            {isPolling && (
-              <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
-                处理中: {docStatusMessage || '正在处理文档...'}
+    <div className="flex flex-col h-[calc(100vh-0px)] bg-muted/30">
+      {/* 顶部导航栏 - 悬浮式设计 */}
+      <header className="h-16 px-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b sticky top-0 z-20 shrink-0 shadow-sm">
+        <div className="flex items-center gap-4">
+          <Link href="/" className="p-2 hover:bg-secondary rounded-full transition-colors">
+            <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+          </Link>
+          
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-foreground text-sm md:text-base max-w-[300px] truncate">
+                {fileData.fileName}
+              </span>
+              <Badge variant="outline" className="font-normal text-[10px] h-5 px-1.5 bg-secondary/50 text-muted-foreground border-border">
+                {isPdfFile ? 'PDF' : 'DOCX'}
               </Badge>
-            )}
-            
-            {/* 响应式视图切换按钮 */}
-            <div className="flex items-center bg-gray-100 rounded-md p-1">
-              <Button
-                variant={viewMode === 'split' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('split')}
-                className="h-7 px-2 text-xs"
-              >
-                分屏
-              </Button>
-              <Button
-                variant={viewMode === 'pdf' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('pdf')}
-                className="h-7 px-2 text-xs"
-              >
-                PDF
-              </Button>
-              <Button
-                variant={viewMode === 'editor' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('editor')}
-                className="h-7 px-2 text-xs"
-              >
-                编辑
-              </Button>
             </div>
+            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+              自动保存已启用
+            </span>
           </div>
         </div>
-      </div>
 
-      {/* 主要内容区域 - 响应式布局 */}
-      <div className={`h-[calc(100vh-80px)] p-4 md:p-6 transition-all duration-300 ${sidebarCollapsed ? 'ml-0' : ''}`}>
-        <div className={`h-full ${sidebarCollapsed ? 'max-w-full' : 'max-w-7xl'} mx-auto transition-all duration-300`}>
-          {/* 分屏视图 */}
+        <div className="flex items-center gap-3">
+          {/* 视图切换器 - 胶囊样式 */}
+          <div className="hidden md:flex bg-secondary/50 p-1 rounded-lg border border-border/50">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setViewMode('split')}
+              className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'split' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
+            >
+              <Layout className="w-3.5 h-3.5" />
+              分屏
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setViewMode('pdf')}
+              className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'pdf' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
+            >
+              <PanelLeft className="w-3.5 h-3.5" />
+              预览
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setViewMode('editor')}
+              className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'editor' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
+            >
+              <PanelRight className="w-3.5 h-3.5" />
+              编辑
+            </Button>
+          </div>
+
+          <Separator orientation="vertical" className="h-6 hidden md:block" />
+
+          <Button className="h-9 gap-2 shadow-sm bg-primary text-primary-foreground hover:bg-primary/90">
+            下一步
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </header>
+
+      {/* 工作区内容 - 增加内边距 */}
+      <main className={`flex-1 p-4 md:p-6 transition-all duration-300 ${sidebarCollapsed ? 'ml-0' : ''}`}>
+        <div className={`h-full ${sidebarCollapsed ? 'w-full' : 'max-w-[1920px]'} mx-auto transition-all duration-300`}>
+          
+          {/* 分屏模式 */}
           {viewMode === 'split' && (
             <div className="h-full flex flex-col lg:flex-row gap-4 lg:gap-6">
-              
-              {/* 左侧 - PDF预览区域 */}
-              <div className="w-full lg:w-1/2 h-full transition-all duration-300 border-r border-gray-200 overflow-auto">
-                
-                {isPdf || isPdfFile ? (
-                  // 如果是 PDF，显示原始PDF文件
-                  <PDFPreview 
-                    fileUrl={fileData.fileUrl} 
-                    fileName={fileData.fileName}
-                  />
+              {/* 左侧：PDF预览 */}
+              <div className="w-full lg:w-1/2 h-full min-h-[400px] animate-in slide-in-from-left-4 fade-in duration-500">
+                {(isPdf || isPdfFile) ? (
+                  <PDFPreview fileUrl={fileData.fileUrl} fileName={fileData.fileName} />
                 ) : (
-                  // 如果不是 PDF (e.g. .docx)，显示转换后的docx文件
-                  <Card className="h-full flex items-center justify-center bg-gray-50">
-                    <CardContent className="text-center p-6">
-                      <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="font-semibold text-lg">不支持分屏预览</h3>
-                      <p className="text-muted-foreground text-sm mt-2">此文件类型 (.docx) 无法在左侧预览。<br/>请使用 "编辑" 视图进行操作。</p>
-                      {fileData.fileUrl && (
-                        <div className="mt-4 p-2 bg-gray-100 rounded text-xs">
-                          <p>文件URL: {fileData.fileUrl}</p>
-                          <p>文件名: {fileData.fileName}</p>
-                          <p>isPdf: {isPdf.toString()}</p>
-                          <p>isPdfFile: {isPdfFile.toString()}</p>
-                        </div>
-                      )}
-                    </CardContent>
+                  <Card className="h-full flex items-center justify-center bg-muted/20 border-dashed border-2 shadow-none">
+                    <div className="text-center space-y-3">
+                      <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto">
+                        <FileText className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <h3 className="font-medium text-foreground">预览不可用</h3>
+                      <p className="text-sm text-muted-foreground px-6">此文件格式 (.docx) 不支持分屏预览，请切换到“编辑”模式。</p>
+                      <Button variant="outline" size="sm" onClick={() => setViewMode('editor')}>
+                        切换到编辑模式
+                      </Button>
+                    </div>
                   </Card>
                 )}
               </div>
 
-              {/* 右侧 - OnlyOffice编辑器区域 */}
-              <div className="w-full lg:w-1/2 h-full transition-all duration-300">
-                {(isPdf || isPdfFile) && !docUrl ? (
-                  // PDF分屏视图且docUrl未准备好时，显示提示
-                  <Card className="h-full flex items-center justify-center bg-gray-50">
-                    <CardContent className="text-center p-6">
-                      <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="font-semibold text-lg mb-2">PDF 文档预览</h3>
-                      <p className="text-muted-foreground text-sm mb-4">
-                        左侧显示PDF文档预览，右侧将显示可编辑内容。
-                      </p>
-                    </CardContent>
+              {/* 右侧：编辑器 */}
+              <div className="w-full lg:w-1/2 h-full min-h-[400px] animate-in slide-in-from-right-4 fade-in duration-500">
+                {((isPdf || isPdfFile) && !docUrl) ? (
+                  <Card className="h-full flex items-center justify-center bg-muted/20 border-dashed border-2 shadow-none">
+                    <div className="text-center space-y-4 max-w-xs">
+                      <div className="relative mx-auto">
+                        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center animate-pulse">
+                           <Edit3 className="w-8 h-8 text-blue-400" />
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm">
+                          <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-foreground mb-1">正在生成可编辑文档</h3>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          系统正在使用OCR技术识别文档内容并转换为Word格式，这通常需要几秒钟...
+                        </p>
+                      </div>
+                    </div>
                   </Card>
                 ) : (
-                  // 显示OnlyOffice编辑器（无论是PDF转换后的docx还是原始docx）
                   <OnlyOfficeEditor 
                     docUrl={docUrl}
                     docName={docName}
@@ -726,19 +653,16 @@ export default function PDFOCREditorPage() {
             </div>
           )}
 
-          {/* 仅PDF视图 */}
+          {/* 纯PDF模式 */}
           {viewMode === 'pdf' && (
-            <div className="h-full">
-              <PDFPreview 
-                fileUrl={fileData.fileUrl} 
-                fileName={fileData.fileName}
-              />
+            <div className="h-full animate-in zoom-in-95 fade-in duration-300">
+              <PDFPreview fileUrl={fileData.fileUrl} fileName={fileData.fileName} />
             </div>
           )}
 
-          {/* 仅编辑器视图 */}
+          {/* 纯编辑器模式 */}
           {viewMode === 'editor' && (
-            <div className="h-full">
+            <div className="h-full animate-in zoom-in-95 fade-in duration-300">
               <OnlyOfficeEditor 
                 docUrl={docUrl}
                 docName={docName}
@@ -747,7 +671,7 @@ export default function PDFOCREditorPage() {
             </div>
           )}
         </div>
-      </div>
+      </main>
     </div>
   )
 }

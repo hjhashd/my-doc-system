@@ -4,84 +4,109 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Updated color palette for intelligent document system */
-  --background: oklch(1 0 0); /* Pure white */
-  --foreground: oklch(0.35 0 0); /* Dark slate for text */
-  --card: oklch(0.98 0.01 330); /* Light pink background for cards */
-  --card-foreground: oklch(0.35 0 0);
+  /* 烟粉色主题 - 亮色模式 (Elegant Dusty Rose) */
+  
+  /* 背景：不再是死白，而是带有一丝极淡暖意的米白/灰粉白，护眼且高级 */
+  --background: oklch(0.99 0.005 15); 
+  --foreground: oklch(0.35 0.04 15);   /* 文字：深褐灰色，比纯黑柔和，与粉色更搭 */
+
+  --card: oklch(1 0 0);               /* 卡片保持纯白，突出层次感 */
+  --card-foreground: oklch(0.35 0.04 15);
+
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.35 0 0);
-  --primary: oklch(0.45 0.22 350); /* Rose-600 primary color */
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.98 0.01 330); /* Light pink secondary */
-  --secondary-foreground: oklch(0.35 0 0);
-  --muted: oklch(0.99 0.005 330); /* Very light pink muted */
-  --muted-foreground: oklch(0.45 0 0);
-  --accent: oklch(0.65 0.25 330); /* Pink-500 accent */
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.55 0.22 25); /* Red for errors */
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.92 0.005 330); /* Light border */
-  --input: oklch(0.98 0.005 330); /* Input background */
-  --ring: oklch(0.45 0.22 350 / 0.5); /* Primary ring with opacity */
-  /* Updated chart colors for data visualization */
-  --chart-1: oklch(0.45 0.22 350); /* Primary rose */
-  --chart-2: oklch(0.65 0.25 330); /* Pink accent */
-  --chart-3: oklch(0.55 0.25 60); /* Amber for variety */
-  --chart-4: oklch(0.55 0.22 25); /* Red for contrast */
-  --chart-5: oklch(0.45 0.15 80); /* Muted yellow */
-  --radius: 0.5rem;
-  /* Updated sidebar colors */
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.35 0 0);
-  --sidebar-primary: oklch(0.98 0.01 330);
-  --sidebar-primary-foreground: oklch(0.35 0 0);
-  --sidebar-accent: oklch(0.65 0.25 330);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-accent-hover: oklch(0.6 0.25 330); /* 新增：侧边栏激活项悬停颜色 */
-  --sidebar-border: oklch(0.92 0.005 330);
-  --sidebar-ring: oklch(0.45 0.22 350 / 0.5);
+  --popover-foreground: oklch(0.35 0.04 15);
+
+  /* 核心主色：烟粉色 - 明显但不刺眼 */
+  --primary: oklch(0.65 0.16 15);     /* 优雅的玫瑰粉/豆沙红 */
+  --primary-foreground: oklch(1 0 0); /* 按钮文字白色 */
+
+  --secondary: oklch(0.96 0.02 15);   /* 次级背景：极淡的粉灰色 */
+  --secondary-foreground: oklch(0.45 0.05 15);
+
+  --muted: oklch(0.97 0.01 15);
+  --muted-foreground: oklch(0.60 0.03 15);
+
+  --accent: oklch(0.96 0.03 15);      /* 强调背景：淡粉色，用于Hover状态 */
+  --accent-foreground: oklch(0.40 0.08 15);
+
+  --destructive: oklch(0.65 0.20 25); /* 警告色：稍微偏暗红，不突兀 */
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.92 0.02 15);      /* 边框：带一点点暖色调的灰 */
+  --input: oklch(0.92 0.02 15);
+  --ring: oklch(0.75 0.12 15);        /* 聚焦光环：淡粉色 */
+
+  --radius: 0.75rem; /* 稍微增大圆角，增加柔和感 */
+
+  /* 图表配色 - 莫兰迪色系，与主色调和谐共存 */
+  --chart-1: oklch(0.65 0.16 15); /* 主粉色 */
+  --chart-2: oklch(0.70 0.12 60); /* 暖橙色 */
+  --chart-3: oklch(0.68 0.10 200); /* 灰蓝色 */
+  --chart-4: oklch(0.72 0.13 320); /* 香芋紫 */
+  --chart-5: oklch(0.75 0.10 140); /* 鼠尾草绿 */
+
+  /* 侧边栏 - 保持清爽，或者带一点点粉调 */
+  --sidebar: oklch(0.99 0.005 15);
+  --sidebar-foreground: oklch(0.40 0.05 15);
+  --sidebar-primary: oklch(0.65 0.16 15);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.95 0.03 15); /* 侧边栏选中项背景：淡粉 */
+  --sidebar-accent-foreground: oklch(0.40 0.08 15); /* 侧边栏选中项文字：深粉褐 */
+  --sidebar-border: oklch(0.94 0.02 15);
+  --sidebar-ring: oklch(0.75 0.12 15);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.65 0.25 330);
-  --primary-foreground: oklch(0.145 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.65 0.25 330);
-  --accent-foreground: oklch(0.145 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.65 0.25 330);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.65 0.25 330);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* 暗色模式 - 这里的烟粉色会变成更高级的“暗夜玫瑰”风格 */
+  --background: oklch(0.15 0.02 15);  /* 深褐灰色背景，比纯黑更有质感 */
+  --foreground: oklch(0.95 0.02 15);
+
+  --card: oklch(0.18 0.03 15);        /* 卡片稍亮 */
+  --card-foreground: oklch(0.95 0.02 15);
+
+  --popover: oklch(0.18 0.03 15);
+  --popover-foreground: oklch(0.95 0.02 15);
+
+  --primary: oklch(0.75 0.14 15);     /* 暗模式下主色稍微提亮，确保可见 */
+  --primary-foreground: oklch(0.20 0.05 15);
+
+  --secondary: oklch(0.25 0.04 15);
+  --secondary-foreground: oklch(0.90 0.02 15);
+
+  --muted: oklch(0.25 0.02 15);
+  --muted-foreground: oklch(0.70 0.04 15);
+
+  --accent: oklch(0.25 0.04 15);
+  --accent-foreground: oklch(0.90 0.02 15);
+
+  --destructive: oklch(0.5 0.2 25);
+  --destructive-foreground: oklch(0.95 0 0);
+
+  --border: oklch(0.28 0.03 15);
+  --input: oklch(0.28 0.03 15);
+  --ring: oklch(0.60 0.12 15);
+
+  --chart-1: oklch(0.75 0.14 15);
+  --chart-2: oklch(0.70 0.12 60);
+  --chart-3: oklch(0.68 0.10 200);
+  --chart-4: oklch(0.72 0.13 320);
+  --chart-5: oklch(0.75 0.10 140);
+
+  --sidebar: oklch(0.13 0.02 15);
+  --sidebar-foreground: oklch(0.90 0.02 15);
+  --sidebar-primary: oklch(0.75 0.14 15);
+  --sidebar-primary-foreground: oklch(0.20 0.05 15);
+  --sidebar-accent: oklch(0.25 0.04 15);
+  --sidebar-accent-foreground: oklch(0.95 0.02 15);
+  --sidebar-border: oklch(0.28 0.03 15);
+  --sidebar-ring: oklch(0.60 0.12 15);
 }
 
-/* Updated font configuration for DM Sans */
+/* 保持字体和其他配置不变 */
 @theme inline {
   --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-geist-mono);
+  
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -129,11 +154,10 @@
   }
 }
 
-/* ---- Scroll layout tuning ---- */
+/* ---- 滚动条优化 ---- */
 html,
 body {
   height: 100%;
-  /* 禁用页面级滚动，滚动仅在各自容器中发生 */
   overflow: hidden;
 }
 
