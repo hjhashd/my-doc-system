@@ -13,9 +13,10 @@ services:
       - NODE_ENV=development
       # 使用IP地址访问，确保OnlyOffice可以正常工作
       - NEXT_PUBLIC_BASE_URL=http://192.168.3.10:10043
-      - NEXT_PUBLIC_DS_BASE_URL=http://host.docker.internal:10043
+      - NEXT_PUBLIC_DS_BASE_URL=http://192.168.3.10:10043
       - BASE_URL=http://192.168.3.10:10043
-      - DS_BASE_URL=http://host.docker.internal:10043
+      - DS_BASE_URL=http://192.168.3.10:10043
+      - PYTHON_OCR_SERVICE_URL=http://192.168.3.10:11111
     volumes:
       # 挂载源代码，实现热重载
       - .:/app

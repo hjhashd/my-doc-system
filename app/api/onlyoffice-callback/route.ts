@@ -21,9 +21,11 @@ export async function POST(req: NextRequest) {
     const payload = (await req.json()) as OnlyOfficeCallbackPayload
     const status = payload.status ?? 0
 
-    // 从 URL 参数中获取自定义文件名
+    // 从 URL 参数中获取自定义文件名、用户ID和任务ID
     const url = new URL(req.url)
     const customFileName = url.searchParams.get('fileName')
+    const agentUserId = url.searchParams.get('agentUserId')
+    const taskId = url.searchParams.get('taskId')
 
     // 按 OnlyOffice 回调状态处理：2=保存完成，4=强制保存
     if (status === 2 || status === 4) {
@@ -65,16 +67,28 @@ export async function POST(req: NextRequest) {
         fileName = `${baseName}.${ext}`
       }
 
-      const saveDir = path.join(process.cwd(), 'public', 'save')
+      // 修改：按照用户ID和任务ID的目录结构保存文件
+      let saveDir: string
+      let relativePath: string
+      
+      if (agentUserId && taskId) {
+        // 使用用户ID和任务ID的目录结构
+        saveDir = path.join(process.cwd(), 'public', 'save', agentUserId, taskId)
+        relativePath = `/save/${agentUserId}/${taskId}/${fileName}`
+      } else {
+        // 如果没有提供用户ID和任务ID，使用原来的保存方式
+        saveDir = path.join(process.cwd(), 'public', 'save')
+        relativePath = `/save/${fileName}`
+      }
+      
       await fs.promises.mkdir(saveDir, { recursive: true })
       const filePath = path.join(saveDir, fileName)
-
       await fs.promises.writeFile(filePath, buf)
       
       const publicBase = process.env.NEXT_PUBLIC_BASE_URL || ''
       const dsBase = process.env.NEXT_PUBLIC_DS_BASE_URL || publicBase
-      const localUrl = `${publicBase}/save/${encodeURIComponent(fileName)}`
-      const docUrl = `${dsBase}/files/save/${encodeURIComponent(fileName)}`
+      const localUrl = `${publicBase}${relativePath}`
+      const docUrl = `${dsBase}${relativePath}`
       
       // 获取请求的Host头，用于生成正确的回调URL
       const requestHost = req.headers.get('host') || ''
@@ -87,11 +101,24 @@ export async function POST(req: NextRequest) {
         callbackUrl,
         publicBase,
         dsBase,
-        fileName
+        fileName,
+        agentUserId,
+        taskId,
+        saveDir,
+        relativePath
       })
       
       // 按 OnlyOffice 要求返回 { error: 0 } 表示已处理
-      return NextResponse.json({ error: 0, ok: true, fileName, savedPath: `/save/${fileName}`, docUrl, localUrl })
+      return NextResponse.json({ 
+        error: 0, 
+        ok: true, 
+        fileName, 
+        savedPath: relativePath, 
+        docUrl, 
+        localUrl,
+        agentUserId,
+        taskId
+      })
     }
 
     // 其他状态返回透传信息，方便调试

@@ -57,7 +57,26 @@ export async function GET(req: NextRequest) {
 
   if (isOffice) {
     const docUrl = `${dsBase}/files${found.rel}`
-    const editorUrl = `${base}/pdf-ocr-editor?docUrl=${encodeURIComponent(docUrl)}&docName=${encodeURIComponent(baseName)}`
+    
+    // 尝试从路径中提取用户ID和任务ID
+    // 路径格式应该是: /upload/agentUserId/taskId/filename 或 /save/agentUserId/taskId/filename
+    const pathParts = found.rel.split('/')
+    let agentUserId = ''
+    let taskId = ''
+    
+    if (pathParts.length >= 4 && (pathParts[1] === 'upload' || pathParts[1] === 'save')) {
+      agentUserId = pathParts[2] || ''
+      taskId = pathParts[3] || ''
+    }
+    
+    // 构建编辑器URL，包含用户ID和任务ID参数
+    let editorUrl = `${base}/pdf-ocr-editor?docUrl=${encodeURIComponent(docUrl)}&docName=${encodeURIComponent(baseName)}`
+    
+    // 如果成功提取到用户ID和任务ID，则添加到URL参数中
+    if (agentUserId && taskId) {
+      editorUrl += `&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(taskId)}`
+    }
+    
     return NextResponse.redirect(editorUrl, 302)
   } else {
     const fileUrl = `${base}/files${found.rel}`

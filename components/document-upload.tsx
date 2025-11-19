@@ -23,7 +23,6 @@ import {
   Settings,
   Zap,
 } from "lucide-react"
-import { uploadPdf } from "@/services/pdf"
 
 interface UploadedFile {
   id: string
@@ -57,6 +56,9 @@ export function DocumentUpload() {
     confidenceThreshold: 0.8,
     customInstructions: "",
   })
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [processingMessage, setProcessingMessage] = useState("")
+  const [processingProgress, setProcessingProgress] = useState(0)
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -79,6 +81,9 @@ export function DocumentUpload() {
   }, [])
 
   const handleFiles = async (files: FileList) => {
+    // 默认用户ID，实际应用中应该从登录状态获取
+    const agentUserId = "123";
+    // 不再传递taskId，让后端自动生成顺序编号
 
     for (const file of Array.from(files)) {
       const newFile: UploadedFile = {
@@ -88,24 +93,88 @@ export function DocumentUpload() {
         type: file.type,
       }
 
-      // 上传到后端，直接保存到 public/upload 目录
+      // 上传到后端，保存到基于用户ID和任务ID的目录结构
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('agentUserId', agentUserId)
+      // 不再传递taskId，让后端自动生成顺序编号
 
-      // 并行上传一份到外部后端（不影响当前流程）
-      // 使用已有 axios 封装与环境变量中的基础地址
-      uploadPdf(file).catch((err) => {
-        console.warn('远程上传失败:', err)
-      })
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData })
         if (!res.ok) throw new Error('上传失败')
         const data = await res.json()
-        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(data.docUrl)}&fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent(data.callbackUrl)}`
-        router.push(navigateUrl)
+
+        try {
+          await fetch('/api/ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task_id: data.taskId,
+              status: 2,
+              agentUserId: agentUserId,
+              file_name: data.fileName,
+              input_file_path: '/home/cqj/my-doc-system-uploads/upload',
+              output_file_path: '/home/cqj/my-doc-system-uploads/save'
+            })
+          })
+        } catch {}
+
+        setIsProcessing(true)
+        setProcessingMessage('任务已提交，正在后台处理...')
+        setProcessingProgress(5)
+
+        const pollIntervalMs = 3000
+        let attempts = 0
+        const maxAttempts = 40
+
+        const poll = async () => {
+          attempts++
+          try {
+            const params = new URLSearchParams({
+              agentUserId: agentUserId,
+              taskId: data.taskId,
+              fileName: data.fileName
+            })
+            const r = await fetch(`/api/onlyoffice-docurl?${params.toString()}`)
+            const j = await r.json()
+            if (j && j.ok) {
+              setIsProcessing(false)
+              // 对于所有文件类型，都使用原始文件URL作为fileUrl
+              const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(j.docUrl)}&docName=${encodeURIComponent(j.docName)}&fileUrl=${encodeURIComponent(data.localUrl)}&callbackUrl=${encodeURIComponent(j.callbackUrl)}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+              router.push(navigateUrl)
+              return
+            }
+            if (j && j.processing) {
+              setProcessingMessage(j.message || '文档处理中...')
+              setProcessingProgress(Math.min(95, 5 + attempts * 2))
+              if (attempts < maxAttempts) setTimeout(poll, pollIntervalMs)
+              else {
+                setIsProcessing(false)
+                // 对于所有文件类型，都使用原始文件URL作为fileUrl
+                const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+                router.push(navigateUrl)
+              }
+              return
+            }
+            setIsProcessing(false)
+            // 对于所有文件类型，都使用原始文件URL作为fileUrl
+            const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+            router.push(navigateUrl)
+          } catch {
+            if (attempts < maxAttempts) {
+              setTimeout(poll, pollIntervalMs)
+            } else {
+              setIsProcessing(false)
+              // 对于所有文件类型，都使用原始文件URL作为fileUrl
+              const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+              router.push(navigateUrl)
+            }
+          }
+        }
+        setTimeout(poll, pollIntervalMs)
       } catch (e) {
         const blobUrl = URL.createObjectURL(file)
-        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}`
+        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}&agentUserId=${encodeURIComponent(agentUserId)}`
         router.push(navigateUrl)
       }
     }
@@ -131,6 +200,19 @@ export function DocumentUpload() {
 
   return (
     <div className="p-6 space-y-6">
+      {isProcessing && (
+        <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>正在处理文档</CardTitle>
+              <CardDescription>{processingMessage || '请稍候...'}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Progress value={processingProgress} className="w-full" />
+            </CardContent>
+          </Card>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">文档上传与处理</h1>

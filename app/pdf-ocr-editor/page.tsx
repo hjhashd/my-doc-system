@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Progress } from "@/components/ui/progress"
 import { 
   FileText, 
   Download, 
@@ -20,8 +21,10 @@ import {
   CheckCircle,
   Edit3,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Loader2
 } from "lucide-react"
+import http from '@/lib/http'
 
 interface PDFPreviewProps {
   fileUrl: string
@@ -33,6 +36,8 @@ interface OnlyOfficeEditorProps {
   docName?: string
   callbackUrl?: string
 }
+
+
 
 function PDFPreview({ fileUrl, fileName }: PDFPreviewProps) {
   const [isLoading, setIsLoading] = useState(true)
@@ -375,8 +380,19 @@ export default function PDFOCREditorPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'split' | 'pdf' | 'editor'>('split')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-// ★ 新增一个判断：
-  const isPdf = docName.toLowerCase().endsWith('.pdf')
+  
+  // 新增状态管理
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [docStatus, setDocStatus] = useState<number | null>(null)
+  const [docStatusMessage, setDocStatusMessage] = useState<string>("")
+  const [isPolling, setIsPolling] = useState(false)
+  
+  // 新增一个判断：使用原始文件名判断是否为PDF
+  const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
+  
+  // 新增一个判断：使用原始文件URL判断是否为PDF文件
+  const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
+  
   // 监听侧边栏切换事件
   useEffect(() => {
     const handleToggleSidebar = () => {
@@ -391,53 +407,174 @@ export default function PDFOCREditorPage() {
   }, [])
 
   // 从URL参数获取文件信息
-  useEffect(() => {
-    const fileName = searchParams.get('fileName') || "sample.pdf"
-    const fileUrlParam = searchParams.get('fileUrl') || ""
-    const docUrlParam = searchParams.get('docUrl') || ""
-    const docNameParam = searchParams.get('docName') || (docUrlParam ? (docUrlParam.split('/').pop() || "") : "")
-    const cbUrlParam = searchParams.get('callbackUrl') || "/onlyoffice-fallback"
-    
-    // 将自定义文件名添加到回调 URL 中
-    const finalCallbackUrl = docNameParam ? `${cbUrlParam}${cbUrlParam.includes('?') ? '&' : '?'}fileName=${encodeURIComponent(docNameParam)}` : cbUrlParam
-
-    const finalFileUrl = fileUrlParam || docUrlParam || `/files/upload/dummy.pdf`
+    useEffect(() => {
+      const fileName = searchParams.get('fileName') || ""
+      const fileUrlParam = searchParams.get('fileUrl') || ""
+      const docUrlParam = searchParams.get('docUrl') || ""
+      const docNameParam = searchParams.get('docName') || (docUrlParam ? (docUrlParam.split('/').pop() || "") : "")
+      const cbUrlParam = searchParams.get('callbackUrl') || "/onlyoffice-callback"
+      const localUrlParam = searchParams.get('localUrl') || ""
+      
+      // 获取用户ID和任务ID参数
+      const agentUserIdParam = searchParams.get('agentUserId') || ""
+      const taskIdParam = searchParams.get('taskId') || ""
+      
+      // 如果没有文件名，但有docUrl，尝试从docUrl中提取文件名
+      const finalFileName = fileName || docNameParam || (docUrlParam ? docUrlParam.split('/').pop() || "" : "")
+      
+      // 确定原始文件URL
+      // 1. 优先使用URL参数中的fileUrl
+      // 2. 如果没有，使用URL参数中的localUrl
+      // 3. 如果都没有，尝试构建PDF文件URL
+      let originalFileUrl = fileUrlParam || localUrlParam
+      
+      // 如果没有fileUrl和localUrl参数，尝试构建文件URL
+      if (!originalFileUrl && agentUserIdParam && taskIdParam && finalFileName) {
+        const publicBase = process.env.NEXT_PUBLIC_BASE_URL || ''
+        originalFileUrl = `${publicBase}/upload/${agentUserIdParam}/${taskIdParam}/${encodeURIComponent(finalFileName)}`
+      }
+      
+      // 如果还是没有文件URL，使用默认的PDF文件
+      const finalFileUrl = originalFileUrl || `/files/upload/dummy.pdf`
 
     setFileData({
-      fileName,
+      fileName: finalFileName,
       fileUrl: finalFileUrl
     })
-    setDocUrl(docUrlParam)
-    setDocName(docNameParam)
-    setCallbackUrl(finalCallbackUrl)
 
-    // 判断是否为 Word 文档 (或 Excel/PPT 等未来可能支持的格式)
-    const isOfficeDoc = docNameParam.toLowerCase().endsWith('.docx') || 
-                        docNameParam.toLowerCase().endsWith('.xlsx') || 
-                        docNameParam.toLowerCase().endsWith('.pptx');
-                        
-    if (isOfficeDoc) {
-      // 如果是 Office 文档，强制使用 'editor' 视图
-      setViewMode('editor');
-    } else {
-      // 否则 (PDF)，使用默认的 'split' 视图
-      setViewMode('split');
+    const tryFetchDocUrl = async () => {
+      try {
+        // 重置错误状态
+        setApiError(null)
+        
+        if (agentUserIdParam && taskIdParam) {
+          // 轮询获取文档URL，直到文档处理完成
+          const pollForDocUrl = async () => {
+            setIsPolling(true)
+            let attempts = 0
+            const maxAttempts = 30 // 最多轮询30次
+            const pollInterval = 3000 // 每3秒轮询一次
+            
+            const poll = async (): Promise<void> => {
+              attempts++
+              
+              try {
+                const res = await http.get('/api/onlyoffice-docurl', {
+                  params: {
+                    agentUserId: agentUserIdParam,
+                    taskId: taskIdParam,
+                    fileName: fileName
+                  }
+                })
+
+                if (res && res.ok) {
+                  // 文档处理成功
+                  setDocUrl(res.docUrl || '')
+                  setDocName(res.docName || '')
+                  setCallbackUrl(res.callbackUrl || cbUrlParam)
+                  // 对于PDF文件，默认使用分屏视图，这样用户可以对照着编辑
+                  // 使用文件URL判断是否为PDF，而不是仅依赖文件名
+                  if (finalFileName.toLowerCase().endsWith('.pdf') || originalFileUrl.toLowerCase().includes('.pdf')) {
+                    setViewMode('split')
+                  } else {
+                    setViewMode('editor')
+                  }
+                  setDocStatus(0)
+                  setDocStatusMessage('文档处理成功')
+                  setIsPolling(false)
+                  setIsLoading(false) // 文档处理完成，设置加载完成
+                  return
+                } else if (res && res.processing) {
+                  // 文档正在处理中
+                  setDocStatus(res.status)
+                  setDocStatusMessage(res.message || '文档处理中...')
+                  setIsLoading(false) // 显示处理状态后，关闭初始加载状态
+                  
+                  // 继续轮询
+                  if (attempts < maxAttempts) {
+                    setTimeout(poll, pollInterval)
+                  } else {
+                    // 超过最大轮询次数
+                    setApiError('文档处理超时，请稍后再试')
+                    setIsPolling(false)
+                    setIsLoading(false)
+                  }
+                } else {
+                  // 其他错误
+                  setApiError(res.message || '获取文档URL失败')
+                  setIsPolling(false)
+                  setIsLoading(false)
+                }
+              } catch (error) {
+                console.error('轮询文档URL失败:', error)
+                if (attempts >= maxAttempts) {
+                  setApiError('无法获取文档URL，请检查网络连接')
+                  setIsPolling(false)
+                  setIsLoading(false)
+                } else {
+                  // 继续尝试
+                  setTimeout(poll, pollInterval)
+                }
+              }
+            }
+            
+            // 开始轮询
+            await poll()
+          }
+          
+          await pollForDocUrl()
+        } else {
+          // 没有agentUserId和taskId，使用默认处理
+          setDocUrl(docUrlParam)
+          setDocName(docNameParam)
+
+          let finalCallbackUrl = cbUrlParam
+          if (docNameParam) {
+            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}fileName=${encodeURIComponent(docNameParam)}`
+          }
+          if (agentUserIdParam) {
+            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}agentUserId=${encodeURIComponent(agentUserIdParam)}`
+          }
+          if (taskIdParam) {
+            finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}taskId=${encodeURIComponent(taskIdParam)}`
+          }
+          setCallbackUrl(finalCallbackUrl)
+
+          const isOfficeDoc = docNameParam.toLowerCase().endsWith('.docx') || 
+                              docNameParam.toLowerCase().endsWith('.xlsx') || 
+                              docNameParam.toLowerCase().endsWith('.pptx')
+          setViewMode(isOfficeDoc ? 'editor' : 'split')
+          setIsLoading(false) // 非轮询情况，直接设置加载完成
+        }
+      } catch (err) {
+        console.error('获取文档URL失败:', err)
+        setApiError(`获取文档URL失败: ${err instanceof Error ? err.message : String(err)}`)
+        
+        // 设置默认值作为后备
+        setDocUrl(docUrlParam)
+        setDocName(docNameParam)
+
+        let finalCallbackUrl = cbUrlParam
+        if (docNameParam) {
+          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}fileName=${encodeURIComponent(docNameParam)}`
+        }
+        if (agentUserIdParam) {
+          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}agentUserId=${encodeURIComponent(agentUserIdParam)}`
+        }
+        if (taskIdParam) {
+          finalCallbackUrl += `${finalCallbackUrl.includes('?') ? '&' : '?'}taskId=${encodeURIComponent(taskIdParam)}`
+        }
+        setCallbackUrl(finalCallbackUrl)
+
+        const isOfficeDoc = docNameParam.toLowerCase().endsWith('.docx') || 
+                              docNameParam.toLowerCase().endsWith('.xlsx') || 
+                              docNameParam.toLowerCase().endsWith('.pptx')
+        setViewMode(isOfficeDoc ? 'editor' : 'split')
+        setIsLoading(false) // 错误情况，设置加载完成
+      }
     }
 
-    // ==========================================================
-  // ★★★ 在这里添加打印语句 ★★★
-  // ==========================================================
-  console.log("OnlyOffice 最终收到的参数:", {
-    fileUrl_For_PDFPreview: finalFileUrl, // 这个给左侧 PDF 预览
-    docUrl_For_OnlyOffice: docUrlParam,   // ★ 这个给 OnlyOffice 编辑器
-    callbackUrl_For_OnlyOffice: finalCallbackUrl // ★ 这个给 OnlyOffice 回调
-  });
-  // ==========================================================
-
-    // 减少模拟加载时间
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
+    tryFetchDocUrl()
   }, [searchParams])
 
   if (isLoading) {
@@ -445,8 +582,33 @@ export default function PDFOCREditorPage() {
       <div className="flex items-center justify-center h-screen bg-white">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">正在加载文档...</p>
+          <p className="text-muted-foreground">
+            {isPolling ? '正在处理文档，请稍候...' : '正在加载文档...'}
+          </p>
+          {isPolling && docStatusMessage && (
+            <p className="text-sm text-muted-foreground mt-2">{docStatusMessage}</p>
+          )}
         </div>
+      </div>
+    )
+  }
+
+  // 显示API错误
+  if (apiError) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-white">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">加载失败</h3>
+              <p className="text-muted-foreground mb-4">{apiError}</p>
+              <Button onClick={() => window.location.reload()}>
+                重新加载
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -464,6 +626,14 @@ export default function PDFOCREditorPage() {
             <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
               {fileData.fileName}
             </Badge>
+            
+            {/* 显示文档处理状态 */}
+            {isPolling && (
+              <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
+                处理中: {docStatusMessage || '正在处理文档...'}
+              </Badge>
+            )}
+            
             {/* 响应式视图切换按钮 */}
             <div className="flex items-center bg-gray-100 rounded-md p-1">
               <Button
@@ -502,35 +672,50 @@ export default function PDFOCREditorPage() {
           {viewMode === 'split' && (
             <div className="h-full flex flex-col lg:flex-row gap-4 lg:gap-6">
               
-              {/* ★★★ 修改左侧 - PDF预览区域 ★★★ */}
+              {/* 左侧 - PDF预览区域 */}
               <div className="w-full lg:w-1/2 h-full transition-all duration-300 border-r border-gray-200 overflow-auto">
                 
-                {isPdf ? (
-                  // 1. 如果是 PDF，正常显示
+                {isPdf || isPdfFile ? (
+                  // 如果是 PDF，显示原始PDF文件
                   <PDFPreview 
                     fileUrl={fileData.fileUrl} 
                     fileName={fileData.fileName}
                   />
                 ) : (
-                  // 2. 如果不是 PDF (e.g. .docx)，显示一个提示，而不是加载 iframe
+                  // 如果不是 PDF (e.g. .docx)，显示转换后的docx文件
                   <Card className="h-full flex items-center justify-center bg-gray-50">
                     <CardContent className="text-center p-6">
                       <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                       <h3 className="font-semibold text-lg">不支持分屏预览</h3>
                       <p className="text-muted-foreground text-sm mt-2">此文件类型 (.docx) 无法在左侧预览。<br/>请使用 "编辑" 视图进行操作。</p>
+                      {fileData.fileUrl && (
+                        <div className="mt-4 p-2 bg-gray-100 rounded text-xs">
+                          <p>文件URL: {fileData.fileUrl}</p>
+                          <p>文件名: {fileData.fileName}</p>
+                          <p>isPdf: {isPdf.toString()}</p>
+                          <p>isPdfFile: {isPdfFile.toString()}</p>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 )}
               </div>
 
-              {/* 右侧 - OnlyOffice编辑器区域 (这部分我们上次已经改好了，保持不变) */}
+              {/* 右侧 - OnlyOffice编辑器区域 */}
               <div className="w-full lg:w-1/2 h-full transition-all duration-300">
-                {isPdf ? (
-                  <PDFPreview 
-                    fileUrl={fileData.fileUrl} 
-                    fileName={fileData.fileName}
-                  />
+                {(isPdf || isPdfFile) && !docUrl ? (
+                  // PDF分屏视图且docUrl未准备好时，显示提示
+                  <Card className="h-full flex items-center justify-center bg-gray-50">
+                    <CardContent className="text-center p-6">
+                      <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="font-semibold text-lg mb-2">PDF 文档预览</h3>
+                      <p className="text-muted-foreground text-sm mb-4">
+                        左侧显示PDF文档预览，右侧将显示可编辑内容。
+                      </p>
+                    </CardContent>
+                  </Card>
                 ) : (
+                  // 显示OnlyOffice编辑器（无论是PDF转换后的docx还是原始docx）
                   <OnlyOfficeEditor 
                     docUrl={docUrl}
                     docName={docName}

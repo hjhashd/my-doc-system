@@ -29,6 +29,7 @@ import {
   Filter,
   Copy,
   ExternalLink,
+  Database,
 } from "lucide-react"
 
 const mockDocuments = [
@@ -304,12 +305,11 @@ export function DocumentParsingInterface() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="overview" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="overview">概览</TabsTrigger>
                 <TabsTrigger value="content">内容分类</TabsTrigger>
                 <TabsTrigger value="export">导出</TabsTrigger>
-                <TabsTrigger value="structure">结构</TabsTrigger>
-                <TabsTrigger value="settings">设置</TabsTrigger>
+                <TabsTrigger value="storage">入库</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
@@ -776,127 +776,99 @@ export function DocumentParsingInterface() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="structure" className="space-y-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-4">文档结构树</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded" />
-                        <span>文档根节点</span>
-                      </div>
-                      <div className="ml-4 space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-green-500 rounded" />
-                          <span>页面 1-5</span>
-                        </div>
-                        <div className="ml-4 space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-purple-500 rounded" />
-                            <span>标题区域</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-orange-500 rounded" />
-                            <span>内容区域</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-red-500 rounded" />
-                            <span>表格区域</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="settings" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <TabsContent value="storage" className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Card>
-                    <CardContent className="p-4 space-y-4">
-                      <div>
-                        <Label htmlFor="parsing-mode">解析模式</Label>
-                        <Select value={parsingMode} onValueChange={setParsingMode}>
+                    <CardHeader>
+                      <CardTitle className="text-lg">入库配置</CardTitle>
+                      <CardDescription>设置文档入库的基本信息</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="doc-title">文档标题</Label>
+                        <Input id="doc-title" placeholder="请输入文档标题" defaultValue={selectedDoc.name} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="doc-category">文档分类</Label>
+                        <Select defaultValue="financial">
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="auto">自动模式</SelectItem>
-                            <SelectItem value="precise">精确模式</SelectItem>
-                            <SelectItem value="fast">快速模式</SelectItem>
-                            <SelectItem value="custom">自定义模式</SelectItem>
+                            <SelectItem value="financial">财务文档</SelectItem>
+                            <SelectItem value="contract">合同文档</SelectItem>
+                            <SelectItem value="technical">技术文档</SelectItem>
+                            <SelectItem value="legal">法律文档</SelectItem>
+                            <SelectItem value="other">其他文档</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <Label htmlFor="confidence-threshold">置信度阈值</Label>
-                        <Input id="confidence-threshold" type="number" defaultValue="0.8" step="0.1" min="0" max="1" />
+                      <div className="space-y-2">
+                        <Label htmlFor="doc-tags">标签</Label>
+                        <Input id="doc-tags" placeholder="输入标签，用逗号分隔" />
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Switch checked={showAdvancedSettings} onCheckedChange={setShowAdvancedSettings} />
-                        <Label>高级设置</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="doc-desc">文档描述</Label>
+                        <Textarea id="doc-desc" placeholder="请输入文档描述" rows={3} />
                       </div>
                     </CardContent>
                   </Card>
+
                   <Card>
-                    <CardContent className="p-4 space-y-4">
-                      <div>
-                        <Label>内容类型优先级</Label>
-                        <div className="space-y-2 mt-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">文本识别</span>
-                            <Switch defaultChecked />
+                    <CardHeader>
+                      <CardTitle className="text-lg">入库选项</CardTitle>
+                      <CardDescription>选择需要入库的内容类型</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <Type className="w-4 h-4 text-blue-500" />
+                            <div>
+                              <p className="text-sm font-medium">文本内容</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.text} 个文本块</p>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">表格解析</span>
-                            <Switch defaultChecked />
+                          <Switch defaultChecked />
+                        </div>
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <Grid3X3 className="w-4 h-4 text-purple-500" />
+                            <div>
+                              <p className="text-sm font-medium">表格数据</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.tables} 个表格</p>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">公式识别</span>
-                            <Switch defaultChecked />
+                          <Switch defaultChecked />
+                        </div>
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <Calculator className="w-4 h-4 text-green-500" />
+                            <div>
+                              <p className="text-sm font-medium">公式内容</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.formulas} 个公式</p>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">图片分析</span>
-                            <Switch defaultChecked />
+                          <Switch defaultChecked />
+                        </div>
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <FileImage className="w-4 h-4 text-orange-500" />
+                            <div>
+                              <p className="text-sm font-medium">图片内容</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.images} 个图片</p>
+                            </div>
                           </div>
+                          <Switch />
                         </div>
                       </div>
+                      <Button className="w-full">
+                        <Database className="w-4 h-4 mr-2" />
+                        确认入库
+                      </Button>
                     </CardContent>
                   </Card>
                 </div>
-
-                {showAdvancedSettings && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">高级配置</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="dpi-setting">图像DPI设置</Label>
-                          <Input id="dpi-setting" type="number" defaultValue="300" />
-                        </div>
-                        <div>
-                          <Label htmlFor="language-model">语言模型</Label>
-                          <Select defaultValue="zh-cn">
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="zh-cn">中文</SelectItem>
-                              <SelectItem value="en">英文</SelectItem>
-                              <SelectItem value="auto">自动检测</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div>
-                        <Label htmlFor="custom-rules">自定义解析规则</Label>
-                        <Textarea id="custom-rules" placeholder="输入自定义解析规则（JSON格式）" className="mt-2" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
               </TabsContent>
             </Tabs>
           </CardContent>
