@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -177,7 +177,10 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isVisible, setIsVisible] = useState(true) // 新增：控制编辑器可见性
   const editorRef = useRef<any>(null)
+  const instanceRef = useRef<any>(null) // 新增：缓存编辑器实例
+  const initParamsRef = useRef<{docUrl: string, docName: string, callbackUrl: string} | null>(null) // 新增：缓存初始化参数
 
   const makeKeyFromUrl = (url: string) => {
     let h = 0
@@ -189,7 +192,25 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
 
   const toggleFullscreen = () => setIsFullscreen(!isFullscreen)
 
-  useEffect(() => {
+  // 新增：初始化编辑器实例的函数（优化缓存）
+  const initializeEditor = useCallback(() => {
+    // 如果编辑器实例已存在，直接显示并返回
+    if (instanceRef.current) {
+      console.log('OnlyOffice: 编辑器实例已存在，直接显示')
+      setIsLoading(false)
+      
+      // 确保编辑器iframe可见
+      const container = document.getElementById('onlyoffice-editor-container')
+      if (container) {
+        const editorFrame = container.querySelector('iframe')
+        if (editorFrame) {
+          editorFrame.style.display = 'block'
+        }
+      }
+      return
+    }
+    
+    console.log('OnlyOffice: 开始初始化编辑器实例')
     setIsLoading(true)
     setError(null)
 
@@ -219,10 +240,18 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
           setIsLoading(false)
           return
         }
-        if (editorRef.current && typeof editorRef.current.destroyEditor === 'function') {
-          editorRef.current.destroyEditor()
-          editorRef.current = null
+        
+        // 确保容器存在并清空
+        const container = document.getElementById('onlyoffice-editor-container')
+        if (!container) {
+          console.error('OnlyOffice: 找不到编辑器容器')
+          setError('找不到编辑器容器')
+          setIsLoading(false)
+          return
         }
+        
+        // 清空容器内容
+        container.innerHTML = ''
         
         const publicDocUrl = docUrl.startsWith('http') ? docUrl : `${window.location.origin}${docUrl}`
         let publicCallbackUrl = callbackUrl?.startsWith('http') ? callbackUrl : `${window.location.origin}${callbackUrl}`
@@ -235,7 +264,20 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
             fileType: fileExt,
             key: `doc-${makeKeyFromUrl(docUrl)}-${Date.now()}`,
             title,
-            url: publicDocUrl
+            url: publicDocUrl,
+            permissions: {
+              comment: true,
+              copy: true,
+              download: true,
+              edit: true,
+              fillForms: true,
+              modifyFilter: true,
+              modifyContentControl: true,
+              review: true,
+              print: true,
+              protect: false,
+              rename: false,
+            },
           },
           documentType: docType,
           editorConfig: {
@@ -254,14 +296,30 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
               logo: {
                 image: "",
                 imageEmbedded: ""
-              }
+              },
+              // 禁用拼写和语法检查，去除文档中的红线
+              spellcheck: false,
+              // 禁用自动更正功能
+              autosave: false,
+              // 禁用插件
+              plugins: false
             }
-          }
+          },
+          height: '100%',
+          width: '100%'
         }
+        
         // @ts-ignore
-        editorRef.current = new DocsAPI.DocEditor('onlyoffice-editor-container', config)
+        const editor = new DocsAPI.DocEditor('onlyoffice-editor-container', config)
+        
+        // 保存编辑器实例引用到两个ref中确保缓存
+        instanceRef.current = editor
+        editorRef.current = editor
+        console.log('OnlyOffice: 编辑器实例创建成功并缓存')
+        
         setIsLoading(false)
       } catch (e: any) {
+        console.error('OnlyOffice: 初始化失败', e)
         setError(e?.message || String(e))
         setIsLoading(false)
       }
@@ -292,16 +350,89 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
     } else {
       scriptEl.addEventListener('load', init, { once: true })
     }
+  }, [docUrl, docName, callbackUrl])
 
+  // 修改：只在文档URL、名称或回调URL变化时重新初始化，而不是每次组件渲染都初始化
+  useEffect(() => {
+    // 检查是否需要重新初始化
+    const currentParams = {docUrl, docName, callbackUrl}
+    const prevParams = initParamsRef.current
+    
+    // 如果参数没有变化，不需要重新初始化
+    if (prevParams && 
+        prevParams.docUrl === currentParams.docUrl && 
+        prevParams.docName === currentParams.docName && 
+        prevParams.callbackUrl === currentParams.callbackUrl) {
+      console.log('OnlyOffice: 参数未变化，跳过重新初始化')
+      return
+    }
+    
+    // 保存当前参数
+    initParamsRef.current = currentParams
+    
+    // 只有在编辑器可见时才初始化
+    if (isVisible) {
+      console.log('OnlyOffice: 参数已变化，重新初始化编辑器')
+      initializeEditor()
+    }
+  }, [docUrl, docName, callbackUrl]) // 移除isVisible依赖，避免视图切换时重新初始化
+
+  // 新增：监听可见性变化
+  useEffect(() => {
+    if (isVisible && !instanceRef.current && initParamsRef.current) {
+      // 如果编辑器变为可见但实例不存在，重新初始化
+      console.log('OnlyOffice: 编辑器变为可见但实例不存在，重新初始化')
+      initializeEditor()
+    }
+  }, [isVisible])
+
+  // 新增：提供外部控制编辑器可见性的方法
+  useEffect(() => {
+    // 添加自定义事件监听器
+    const handleVisibilityChange = (event: any) => {
+      const newVisibility = event.detail.isVisible !== false
+      console.log('OnlyOffice: 收到可见性变化事件', { from: isVisible, to: newVisibility })
+      
+      // 如果编辑器实例存在，只是改变可见性，不重新初始化
+      if (instanceRef.current) {
+        console.log('OnlyOffice: 编辑器实例已存在，仅改变可见性')
+        setIsVisible(newVisibility)
+        
+        // 如果编辑器容器元素存在，直接控制其显示/隐藏
+        const container = document.getElementById('onlyoffice-editor-container')
+        if (container) {
+          const editorFrame = container.querySelector('iframe')
+          if (editorFrame) {
+            // 直接控制iframe的可见性，而不是重新创建编辑器
+            if (newVisibility) {
+              editorFrame.style.display = 'block'
+              console.log('OnlyOffice: 显示编辑器iframe')
+            } else {
+              editorFrame.style.display = 'none'
+              console.log('OnlyOffice: 隐藏编辑器iframe')
+            }
+          }
+        }
+      } else {
+        // 如果编辑器实例不存在，设置可见性状态，会触发初始化
+        setIsVisible(newVisibility)
+        console.log('OnlyOffice: 编辑器实例不存在，设置可见性状态')
+      }
+    }
+    
+    window.addEventListener('onlyoffice-visibility-change', handleVisibilityChange)
+    
     return () => {
+      window.removeEventListener('onlyoffice-visibility-change', handleVisibilityChange)
+      // 清理编辑器实例
       try {
-        if (editorRef.current?.destroyEditor) {
-          editorRef.current.destroyEditor()
+        if (instanceRef.current?.destroyEditor) {
+          instanceRef.current.destroyEditor()
         }
       } catch {}
-      editorRef.current = null
+      instanceRef.current = null
     }
-  }, [docUrl, docName, callbackUrl])
+  }, [isVisible])
 
   return (
     <Card className={`h-full flex flex-col border-0 shadow-sm overflow-hidden transition-all duration-300 ${isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'rounded-xl ring-1 ring-border/50'}`}>
@@ -322,7 +453,7 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
         </div>
       </div>
       
-      <CardContent className="flex-1 p-0 relative bg-white">
+      <CardContent className={`flex-1 p-0 relative bg-white`}>
         {isLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 backdrop-blur-[1px]">
             <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
@@ -338,7 +469,11 @@ function OnlyOfficeEditor({ docUrl, docName, callbackUrl }: OnlyOfficeEditorProp
             <p className="text-sm text-muted-foreground mb-4 max-w-xs">{error}</p>
           </div>
         ) : (
-          <div id="onlyoffice-editor-container" className="w-full h-full" />
+          <div 
+            id="onlyoffice-editor-container" 
+            className="w-full h-full"
+            style={{ display: isVisible ? 'block' : 'none' }}
+          />
         )}
       </CardContent>
     </Card>
@@ -360,6 +495,7 @@ export default function PDFOCREditorPage() {
   const [apiError, setApiError] = useState<string | null>(null)
   const [docStatusMessage, setDocStatusMessage] = useState("")
   const [isPolling, setIsPolling] = useState(false)
+  const [editorInitialized, setEditorInitialized] = useState(false) // 新增：跟踪编辑器是否已初始化
   
   const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
   const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
@@ -559,7 +695,10 @@ export default function PDFOCREditorPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setViewMode('split')}
+              onClick={() => {
+                setViewMode('split')
+                window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: true } }))
+              }}
               className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'split' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
             >
               <Layout className="w-3.5 h-3.5" />
@@ -568,7 +707,10 @@ export default function PDFOCREditorPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setViewMode('pdf')}
+              onClick={() => {
+                setViewMode('pdf')
+                window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: false } }))
+              }}
               className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'pdf' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
             >
               <PanelLeft className="w-3.5 h-3.5" />
@@ -577,7 +719,10 @@ export default function PDFOCREditorPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setViewMode('editor')}
+              onClick={() => {
+                setViewMode('editor')
+                window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: true } }))
+              }}
               className={`h-8 px-3 text-xs gap-1.5 rounded-md transition-all ${viewMode === 'editor' ? 'bg-white text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-transparent'}`}
             >
               <PanelRight className="w-3.5 h-3.5" />
@@ -613,7 +758,10 @@ export default function PDFOCREditorPage() {
                       </div>
                       <h3 className="font-medium text-foreground">预览不可用</h3>
                       <p className="text-sm text-muted-foreground px-6">此文件格式 (.docx) 不支持分屏预览，请切换到“编辑”模式。</p>
-                      <Button variant="outline" size="sm" onClick={() => setViewMode('editor')}>
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setViewMode('editor')
+                        window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: true } }))
+                      }}>
                         切换到编辑模式
                       </Button>
                     </div>

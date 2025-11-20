@@ -171,7 +171,8 @@ export function DocumentUpload() {
             }
           }
         }
-        setTimeout(poll, pollIntervalMs)
+        // 立即开始轮询，不再等待3秒
+        poll()
       } catch (e) {
         const blobUrl = URL.createObjectURL(file)
         const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}&agentUserId=${encodeURIComponent(agentUserId)}`
