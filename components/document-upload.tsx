@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
+import { useToast } from "@/components/ui/use-toast"
 import {
   Upload,
   FileText,
@@ -22,6 +24,10 @@ import {
   X,
   Settings,
   Zap,
+  Clock,
+  Brain,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react"
 
 interface UploadedFile {
@@ -59,6 +65,26 @@ export function DocumentUpload() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingMessage, setProcessingMessage] = useState("")
   const [processingProgress, setProcessingProgress] = useState(0)
+  const [useLargeModel, setUseLargeModel] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("useLargeModel")
+      setUseLargeModel(v === "1")
+    } catch {}
+  }, [])
+
+  const handleToggleLargeModel = (checked: boolean) => {
+    setUseLargeModel(checked)
+    try {
+      localStorage.setItem("useLargeModel", checked ? "1" : "0")
+    } catch {}
+    toast({
+      title: checked ? "已启用大模型" : "已切换为小模型",
+      description: checked ? "更高质量，处理时间更长" : "更快速度，结果较为简略",
+    })
+  }
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -97,6 +123,7 @@ export function DocumentUpload() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('agentUserId', agentUserId)
+      formData.append('useLargeModel', useLargeModel ? '1' : '0')
       // 不再传递taskId，让后端自动生成顺序编号
 
       try {
@@ -114,18 +141,20 @@ export function DocumentUpload() {
               agentUserId: agentUserId,
               file_name: data.fileName,
               input_file_path: '/home/cqj/my-doc-system-uploads/upload',
-              output_file_path: '/home/cqj/my-doc-system-uploads/save'
+              output_file_path: '/home/cqj/my-doc-system-uploads/save',
+              use_large_model: useLargeModel,
+              model_size: useLargeModel ? 'large' : 'small'
             })
           })
         } catch {}
 
         setIsProcessing(true)
-        setProcessingMessage('任务已提交，正在后台处理...')
+        setProcessingMessage(useLargeModel ? '已启用大模型处理，正在后台生成可编辑文档...' : '任务已提交，正在后台处理...')
         setProcessingProgress(5)
 
-        const pollIntervalMs = 3000
+        const pollIntervalMs = useLargeModel ? 4000 : 3000
         let attempts = 0
-        const maxAttempts = 40
+        const maxAttempts = useLargeModel ? 80 : 40
 
         const poll = async () => {
           attempts++
@@ -140,7 +169,7 @@ export function DocumentUpload() {
             if (j && j.ok) {
               setIsProcessing(false)
               // 对于所有文件类型，都使用原始文件URL作为fileUrl
-              const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(j.docUrl)}&docName=${encodeURIComponent(j.docName)}&fileUrl=${encodeURIComponent(data.localUrl)}&callbackUrl=${encodeURIComponent(j.callbackUrl)}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+              const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(j.docUrl)}&docName=${encodeURIComponent(j.docName)}&fileUrl=${encodeURIComponent(data.localUrl)}&callbackUrl=${encodeURIComponent(j.callbackUrl)}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
               router.push(navigateUrl)
               return
             }
@@ -151,14 +180,14 @@ export function DocumentUpload() {
               else {
                 setIsProcessing(false)
                 // 对于所有文件类型，都使用原始文件URL作为fileUrl
-                const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+                const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
                 router.push(navigateUrl)
               }
               return
             }
             setIsProcessing(false)
             // 对于所有文件类型，都使用原始文件URL作为fileUrl
-            const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+            const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
             router.push(navigateUrl)
           } catch {
             if (attempts < maxAttempts) {
@@ -166,7 +195,7 @@ export function DocumentUpload() {
             } else {
               setIsProcessing(false)
               // 对于所有文件类型，都使用原始文件URL作为fileUrl
-              const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}`
+              const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
               router.push(navigateUrl)
             }
           }
@@ -175,7 +204,7 @@ export function DocumentUpload() {
         poll()
       } catch (e) {
         const blobUrl = URL.createObjectURL(file)
-        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}&agentUserId=${encodeURIComponent(agentUserId)}`
+        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}&agentUserId=${encodeURIComponent(agentUserId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
         router.push(navigateUrl)
       }
     }
@@ -219,10 +248,16 @@ export function DocumentUpload() {
           <h1 className="text-3xl font-bold text-foreground">文档上传与处理</h1>
           <p className="text-muted-foreground mt-1">支持多种格式的智能文档解析和信息抽取</p>
         </div>
-        <Badge variant="outline" className="bg-accent/10 text-accent-foreground border-accent/20">
-          <Zap className="w-3 h-3 mr-1" />
-          AI 增强处理
-        </Badge>
+        <div className="flex items-center space-x-3">
+          <Badge variant="outline" className="bg-accent/10 text-accent-foreground border-accent/20">
+            <Zap className="w-3 h-3 mr-1" />
+            AI 增强处理
+          </Badge>
+          <div className="flex items-center space-x-2">
+            <Switch checked={useLargeModel} onCheckedChange={handleToggleLargeModel} disabled={isProcessing} />
+            <span className="text-sm text-muted-foreground">{useLargeModel ? "大模型（高质量）" : "小模型（快速）"}</span>
+          </div>
+        </div>
       </div>
 
       <Tabs defaultValue="upload" className="space-y-6">

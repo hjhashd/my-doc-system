@@ -244,6 +244,33 @@ export function DocumentParsingInterface() {
             <CardDescription>待处理和已完成的文档</CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4">
+              <Button 
+                className="w-full" 
+                disabled={selectedDoc.status === "completed" || selectedDoc.status === "processing"}
+                onClick={() => {
+                  // 这里可以添加开始解析的逻辑
+                  console.log("开始解析文档:", selectedDoc.name);
+                }}
+              >
+                {selectedDoc.status === "completed" ? (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    已完成
+                  </>
+                ) : selectedDoc.status === "processing" ? (
+                  <>
+                    <Clock className="w-4 h-4 mr-2" />
+                    处理中
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 mr-2" />
+                    开始解析
+                  </>
+                )}
+              </Button>
+            </div>
             <ScrollArea className="h-[500px]">
               <div className="space-y-3">
                 {mockDocuments.map((doc) => (
