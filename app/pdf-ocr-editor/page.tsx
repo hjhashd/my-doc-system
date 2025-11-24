@@ -1,19 +1,27 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { FileText, RefreshCw, AlertCircle, Edit3 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import http from '@/lib/http'
 import { OnlyOfficeEditor as OnlyOfficeEditorComponent } from "./components/OnlyOfficeEditor"
 import { HeaderBar } from "./components/HeaderBar"
 
-// ==========================================
-// 组件：OnlyOffice 编辑器 (右侧)
-// ==========================================
 export default function PDFOCREditorPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [fileData, setFileData] = useState({ fileName: "", fileUrl: "" })
   const [docUrl, setDocUrl] = useState("")
   const [docName, setDocName] = useState("")
@@ -24,35 +32,26 @@ export default function PDFOCREditorPage() {
   const [apiError, setApiError] = useState<string | null>(null)
   const [docStatusMessage, setDocStatusMessage] = useState("")
   const [isPolling, setIsPolling] = useState(false)
-  const [editorInitialized, setEditorInitialized] = useState(false) // 新增：跟踪编辑器是否已初始化
   
-  // [修改点 1] 新增两个 state 来存储编辑器实例
   const [leftEditor, setLeftEditor] = useState<any>(null)
   const [rightEditor, setRightEditor] = useState<any>(null)
-  
+
+  // 重命名相关状态
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false)
+  const [customFileName, setCustomFileName] = useState("")
+  const [isRenaming, setIsRenaming] = useState(false)
+
   const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
   const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
-  
-  // [修改点 2] 联动核心逻辑
+
+  // PDF-DOCX 联动逻辑（保持不变）
   useEffect(() => {
-    // 只有当两个编辑器都就绪时才启动
     if (viewMode !== 'split' || !leftEditor || !rightEditor) {
-      // 调试日志：看看哪个还没准备好
-      // console.log('Waiting for editors...', { left: !!leftEditor, right: !!rightEditor, mode: viewMode });
       return;
     }
 
-    console.log("✅ 文档联动已启动！");
-    console.log("右侧编辑器实例:", rightEditor);
-    console.log("左侧编辑器实例:", leftEditor);
-
-    // 检查编辑器实例的可用方法
-    console.log("右侧编辑器可用方法:", Object.getOwnPropertyNames(rightEditor));
-    console.log("左侧编辑器可用方法:", Object.getOwnPropertyNames(leftEditor));
-
     const syncInterval = setInterval(() => {
       try {
-        // 方法1：尝试通过编辑器实例获取iframe并访问其内容
         const rightContainer = document.getElementById('onlyoffice-editor-container-right');
         const leftContainer = document.getElementById('onlyoffice-editor-container-left');
         
@@ -65,19 +64,11 @@ export default function PDFOCREditorPage() {
               const rightWindow = rightFrame.contentWindow;
               const leftWindow = leftFrame.contentWindow;
               
-              if (rightWindow && leftWindow) {
-                console.log("找到编辑器窗口对象");
-                
-                // 检查是否有 OnlyOffice API
-                if (rightWindow.Api && leftWindow.Api) {
-                  console.log("找到 OnlyOffice API");
-                  
-                  // 在右侧编辑器中查找隐藏标记
+              if (rightWindow && leftWindow && rightWindow.Api && leftWindow.Api) {
                   const rightDoc = rightWindow.Api.GetDocument();
                   const rightSelection = rightDoc.GetRangeBySelect();
                   const rightParagraph = rightSelection.GetParagraph(0);
                   
-                  // 向下查找 50 个段落
                   let targetPage = null;
                   let tempPara = rightParagraph;
                   
@@ -93,18 +84,11 @@ export default function PDFOCREditorPage() {
                   }
                   
                   if (targetPage !== null && !isNaN(targetPage)) {
-                    console.log("🎯 捕获到光标所在 PDF 页码:", targetPage);
                     const pdfIndex = targetPage - 1;
-                    
-                    // 在左侧PDF中跳转到指定页面
                     leftWindow.Api.asc_moveToPage(pdfIndex);
                   }
-                } else {
-                  console.log("未找到 OnlyOffice API，等待编辑器完全加载...");
-                }
               }
             } catch (e) {
-              console.error("访问编辑器内容时出错:", e);
             }
           }
         }
@@ -115,15 +99,13 @@ export default function PDFOCREditorPage() {
 
     return () => clearInterval(syncInterval);
   }, [viewMode, leftEditor, rightEditor]);
-  
-  // 监听 Sidebar 状态
+
   useEffect(() => {
     const handleToggleSidebar = () => setSidebarCollapsed(prev => !prev)
     window.addEventListener('toggleSidebar', handleToggleSidebar)
     return () => window.removeEventListener('toggleSidebar', handleToggleSidebar)
   }, [])
 
-  // 初始化数据加载
   useEffect(() => {
     const params = {
       fileName: searchParams.get('fileName') || "",
@@ -136,8 +118,9 @@ export default function PDFOCREditorPage() {
       taskId: searchParams.get('taskId') || ""
     }
 
-    // 智能推断文件名和URL
     const finalFileName = params.fileName || params.docName || (params.docUrl ? params.docUrl.split('/').pop() || "" : "")
+    setCustomFileName(finalFileName.replace('.pdf', '').replace('.docx', ''))
+    
     let originalFileUrl = params.fileUrl || params.localUrl
     
     if (!originalFileUrl && params.agentUserId && params.taskId && finalFileName) {
@@ -148,12 +131,9 @@ export default function PDFOCREditorPage() {
 
     setFileData({ fileName: finalFileName, fileUrl: finalFileUrl })
 
-    // 异步获取文档 URL 逻辑
     const fetchDocUrl = async () => {
       try {
         setApiError(null)
-        
-        // 场景1：有任务ID，需要轮询状态
         if (params.agentUserId && params.taskId) {
           setIsPolling(true)
           let attempts = 0
@@ -172,10 +152,9 @@ export default function PDFOCREditorPage() {
 
               if (res?.ok) {
                 setDocUrl(res.docUrl || '')
-                setDocName(res.docName || '')
+                setDocName(res.docName || '')  // 使用虚拟名称
                 setCallbackUrl(res.callbackUrl || params.callbackUrl)
                 
-                // 自动判断最佳视图模式
                 if (finalFileName.toLowerCase().endsWith('.pdf') || originalFileUrl.toLowerCase().includes('.pdf')) {
                   setViewMode('split')
                 } else {
@@ -212,15 +191,9 @@ export default function PDFOCREditorPage() {
             }
           }
           await poll()
-        } 
-        // 场景2：直接打开文档
-        else {
+        } else {
           setDocUrl(params.docUrl)
           setDocName(params.docName || (params.docUrl ? params.docUrl.split('/').pop() : ""))
-          
-          let finalCallback = params.callbackUrl
-          // 简单的参数拼接逻辑...
-          
           const isOffice = ['.docx', '.xlsx', '.pptx'].some(ext => finalFileName.toLowerCase().endsWith(ext))
           setViewMode(isOffice ? 'editor' : 'split')
           setIsLoading(false)
@@ -235,11 +208,47 @@ export default function PDFOCREditorPage() {
     fetchDocUrl()
   }, [searchParams])
 
-  // 全局加载状态
+  // 处理下一步点击
+  const handleNextStep = () => {
+    window.dispatchEvent(new CustomEvent('onlyoffice-force-save'))
+    setIsRenameDialogOpen(true)
+  }
+
+  // 处理确认重命名
+  const handleConfirmRename = async () => {
+    setIsRenaming(true)
+    const agentUserId = searchParams.get('agentUserId')
+    const taskId = searchParams.get('taskId')
+
+    if (!agentUserId || !taskId) {
+      router.push('/parsing')
+      return
+    }
+
+    try {
+      const res = await http.post('/api/document/rename', {
+        agentUserId,
+        taskId,
+        newFileName: customFileName
+      })
+
+      if (res.ok) {
+        router.push(`/parsing?agentUserId=${encodeURIComponent(agentUserId)}`)
+      } else {
+        alert('重命名失败: ' + res.message)
+        setIsRenaming(false)
+      }
+    } catch (error) {
+      console.error('Rename failed', error)
+      alert('重命名请求出错')
+      setIsRenaming(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-muted/30">
-        <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-2xl shadow-lg border animate-in fade-in duration-500">
+        <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-2xl shadow-lg border">
           <div className="relative w-16 h-16 flex items-center justify-center">
             <div className="absolute inset-0 rounded-full border-4 border-primary/10"></div>
             <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
@@ -256,7 +265,6 @@ export default function PDFOCREditorPage() {
     )
   }
 
-  // 错误状态
   if (apiError) {
     return (
       <div className="flex items-center justify-center h-screen bg-muted/30">
@@ -279,11 +287,10 @@ export default function PDFOCREditorPage() {
     )
   }
 
-  // 主界面
   return (
     <div className="flex flex-col h-[calc(100vh-0px)] bg-muted/30">
       <HeaderBar 
-        fileName={fileData.fileName}
+        fileName={docName || fileData.fileName}
         isPdfFile={isPdfFile}
         viewMode={viewMode}
         onChangeViewMode={(mode) => {
@@ -293,16 +300,49 @@ export default function PDFOCREditorPage() {
           setViewMode(mode)
           window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: true } }))
         }}
+        onNextClick={handleNextStep}
       />
 
-      {/* 工作区内容 - 增加内边距 */}
+      {/* 重命名对话框 */}
+      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>保存并继续</DialogTitle>
+            <DialogDescription>
+              您可以自定义文档名称，原文件将保留为备份。完成后将进入文档解析页面。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="filename" className="text-right">
+                文件名
+              </Label>
+              <Input
+                id="filename"
+                value={customFileName}
+                onChange={(e) => setCustomFileName(e.target.value)}
+                className="col-span-3"
+                placeholder="输入文档名称"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleConfirmRename} disabled={isRenaming || !customFileName.trim()}>
+              {isRenaming ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+              确认并继续
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 工作区内容保持原样 */}
       <main className={`flex-1 p-4 md:p-6 transition-all duration-300 ${sidebarCollapsed ? 'ml-0' : ''}`}>
         <div className={`h-full ${sidebarCollapsed ? 'w-full' : 'max-w-[1920px]'} mx-auto transition-all duration-300`}>
-          
-          {/* 分屏模式 */}
           {viewMode === 'split' && (
             <div className="h-full flex flex-col lg:flex-row gap-4 lg:gap-6">
-              {/* 左侧：PDF预览 */}
               <div className="w-full lg:w-1/2 h-full min-h-[400px] animate-in slide-in-from-left-4 fade-in duration-500">
                 {(isPdf || isPdfFile) ? (
                   <OnlyOfficeEditorComponent
@@ -311,7 +351,6 @@ export default function PDFOCREditorPage() {
                     callbackUrl={callbackUrl}
                     containerId="onlyoffice-editor-container-left"
                     instanceId="left"
-                    // [关键] 绑定左侧实例
                     onEditorReady={setLeftEditor}
                   />
                 ) : (
@@ -321,7 +360,7 @@ export default function PDFOCREditorPage() {
                         <FileText className="w-6 h-6 text-muted-foreground" />
                       </div>
                       <h3 className="font-medium text-foreground">预览不可用</h3>
-                      <p className="text-sm text-muted-foreground px-6">此文件格式 (.docx) 不支持分屏预览，请切换到“编辑”模式。</p>
+                      <p className="text-sm text-muted-foreground px-6">此文件格式 (.docx) 不支持分屏预览，请切换到"编辑"模式。</p>
                       <Button variant="outline" size="sm" onClick={() => {
                         setViewMode('editor')
                         window.dispatchEvent(new CustomEvent('onlyoffice-visibility-change', { detail: { isVisible: true, id: 'right' } }))
@@ -333,7 +372,6 @@ export default function PDFOCREditorPage() {
                 )}
               </div>
 
-              {/* 右侧：编辑器 */}
               <div className="w-full lg:w-1/2 h-full min-h-[400px] animate-in slide-in-from-right-4 fade-in duration-500">
                 {((isPdf || isPdfFile) && !docUrl) ? (
                   <Card className="h-full flex items-center justify-center bg-muted/20 border-dashed border-2 shadow-none">
@@ -359,7 +397,6 @@ export default function PDFOCREditorPage() {
                     docUrl={docUrl}
                     docName={docName}
                     callbackUrl={callbackUrl}
-                    // [关键] 绑定右侧实例 (注意: 只有在 split 模式下我们才需要绑定这个来做联动)
                     onEditorReady={setRightEditor}
                   />
                 )}
@@ -367,7 +404,6 @@ export default function PDFOCREditorPage() {
             </div>
           )}
 
-          {/* 纯PDF模式 */}
           {viewMode === 'pdf' && (
             <div className="h-full animate-in zoom-in-95 fade-in duration-300">
               <OnlyOfficeEditorComponent 
@@ -378,7 +414,6 @@ export default function PDFOCREditorPage() {
             </div>
           )}
 
-          {/* 纯编辑器模式 */}
           {viewMode === 'editor' && (
             <div className="h-full animate-in zoom-in-95 fade-in duration-300">
               <OnlyOfficeEditorComponent 

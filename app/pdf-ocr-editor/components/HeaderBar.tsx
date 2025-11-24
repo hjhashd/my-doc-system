@@ -18,9 +18,10 @@ interface HeaderBarProps {
   isPdfFile: boolean
   viewMode: ViewMode
   onChangeViewMode: (mode: ViewMode) => void
+  onNextClick?: () => void
 }
 
-export function HeaderBar({ fileName, isPdfFile, viewMode, onChangeViewMode }: HeaderBarProps) {
+export function HeaderBar({ fileName, isPdfFile, viewMode, onChangeViewMode, onNextClick }: HeaderBarProps) {
   return (
     <header className="h-16 px-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b sticky top-0 z-20 shrink-0 shadow-sm">
       <div className="flex items-center gap-4">
@@ -74,7 +75,10 @@ export function HeaderBar({ fileName, isPdfFile, viewMode, onChangeViewMode }: H
           </Button>
         </div>
         <Separator orientation="vertical" className="h-6 hidden md:block" />
-        <Button className="h-9 gap-2 shadow-sm bg-primary text-primary-foreground hover:bg-primary/90">
+        <Button 
+          className="h-9 gap-2 shadow-sm bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={onNextClick}
+        >
           下一步
           <ArrowRight className="w-4 h-4" />
         </Button>
@@ -82,4 +86,3 @@ export function HeaderBar({ fileName, isPdfFile, viewMode, onChangeViewMode }: H
     </header>
   )
 }
-

@@ -1,6 +1,8 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
+import http from "@/lib/http"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -212,10 +214,43 @@ const mockContentDetails = {
 }
 
 export function DocumentParsingInterface() {
-  const [selectedDoc, setSelectedDoc] = useState(mockDocuments[0])
+  const searchParams = useSearchParams()
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
+  const [loadingList, setLoadingList] = useState<boolean>(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [parsingMode, setParsingMode] = useState("auto")
   const [selectedContentType, setSelectedContentType] = useState("all")
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+
+  const fetchDocuments = useCallback(async () => {
+    try {
+      setLoadingList(true)
+      setListError(null)
+      const agentUserId = searchParams.get('agentUserId') || undefined
+      const res: any = await http.get('/api/document/list', {
+        params: agentUserId ? { agentUserId } : undefined
+      })
+      if (res && res.ok && Array.isArray(res.data)) {
+        setDocuments(res.data)
+        setSelectedDoc(res.data[0] || null)
+      } else {
+        setDocuments([])
+        setSelectedDoc(null)
+        setListError(res?.message || '无法加载文档列表')
+      }
+    } catch (e: any) {
+      setDocuments([])
+      setSelectedDoc(null)
+      setListError('加载文档列表失败')
+    } finally {
+      setLoadingList(false)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    fetchDocuments()
+  }, [fetchDocuments])
 
   return (
     <div className="p-6 space-y-6">
@@ -225,7 +260,7 @@ export function DocumentParsingInterface() {
           <p className="text-muted-foreground">使用Dolphin视觉解析技术进行多类型内容识别和分类输出</p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={fetchDocuments}>
             <RefreshCw className="w-4 h-4 mr-2" />
             刷新队列
           </Button>
@@ -247,18 +282,19 @@ export function DocumentParsingInterface() {
             <div className="mb-4">
               <Button 
                 className="w-full" 
-                disabled={selectedDoc.status === "completed" || selectedDoc.status === "processing"}
+                disabled={!selectedDoc || selectedDoc.status === "completed" || selectedDoc.status === "processing"}
                 onClick={() => {
-                  // 这里可以添加开始解析的逻辑
-                  console.log("开始解析文档:", selectedDoc.name);
+                  if (selectedDoc) {
+                    console.log("开始解析文档:", selectedDoc.name)
+                  }
                 }}
               >
-                {selectedDoc.status === "completed" ? (
+                {selectedDoc && selectedDoc.status === "completed" ? (
                   <>
                     <CheckCircle className="w-4 h-4 mr-2" />
                     已完成
                   </>
-                ) : selectedDoc.status === "processing" ? (
+                ) : selectedDoc && selectedDoc.status === "processing" ? (
                   <>
                     <Clock className="w-4 h-4 mr-2" />
                     处理中
@@ -271,39 +307,54 @@ export function DocumentParsingInterface() {
                 )}
               </Button>
             </div>
-            <ScrollArea className="h-[500px]">
-              <div className="space-y-3">
-                {mockDocuments.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedDoc.id === doc.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
-                    }`}
-                    onClick={() => setSelectedDoc(doc)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center space-x-2">
-                        <FileText className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium truncate">{doc.name}</span>
-                      </div>
-                      <Badge
-                        variant={
-                          doc.status === "completed" ? "default" : doc.status === "processing" ? "secondary" : "outline"
-                        }
-                      >
-                        {doc.status === "completed" ? "已完成" : doc.status === "processing" ? "处理中" : "等待中"}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {doc.type} • {doc.pages}页
-                      </span>
-                      <span>{doc.uploadDate}</span>
-                    </div>
-                  </div>
-                ))}
+            {loadingList ? (
+              <div className="h-[500px] flex items-center justify-center text-muted-foreground">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                加载中
               </div>
-            </ScrollArea>
+            ) : listError ? (
+              <div className="h-[500px] flex items-center justify-center text-red-500 text-sm">
+                {listError}
+              </div>
+            ) : (
+              <ScrollArea className="h-[500px]">
+                <div className="space-y-3">
+                  {documents.length === 0 ? (
+                    <div className="p-3 rounded-lg border text-sm text-muted-foreground">暂无文档</div>
+                  ) : (
+                    documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selectedDoc && selectedDoc.id === doc.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
+                        }`}
+                        onClick={() => setSelectedDoc(doc)}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <FileText className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm font-medium truncate">{doc.name}</span>
+                          </div>
+                          <Badge
+                            variant={
+                              doc.status === "completed" ? "default" : doc.status === "processing" ? "secondary" : "outline"
+                            }
+                          >
+                            {doc.status === "completed" ? "已完成" : doc.status === "processing" ? "处理中" : "等待中"}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>
+                            {doc.type} • {doc.pages}页
+                          </span>
+                          <span>{doc.uploadDate}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
 
@@ -332,7 +383,7 @@ export function DocumentParsingInterface() {
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mb-3">
                         <Type className="w-5 h-5 text-blue-600" />
                       </div>
-                      <p className="text-3xl font-bold text-foreground">{selectedDoc.elements.text}</p>
+                      <p className="text-3xl font-bold text-foreground">{selectedDoc ? selectedDoc.elements.text : 0}</p>
                       <p className="text-sm text-muted-foreground mt-1">文本块</p>
                     </CardContent>
                   </Card>
@@ -342,7 +393,7 @@ export function DocumentParsingInterface() {
                       <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mb-3">
                         <Grid3X3 className="w-5 h-5 text-purple-600" />
                       </div>
-                      <p className="text-3xl font-bold text-foreground">{selectedDoc.elements.tables}</p>
+                      <p className="text-3xl font-bold text-foreground">{selectedDoc ? selectedDoc.elements.tables : 0}</p>
                       <p className="text-sm text-muted-foreground mt-1">表格</p>
                     </CardContent>
                   </Card>
@@ -352,7 +403,7 @@ export function DocumentParsingInterface() {
                       <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mb-3">
                         <FileImage className="w-5 h-5 text-orange-600" />
                       </div>
-                      <p className="text-3xl font-bold text-foreground">{selectedDoc.elements.images}</p>
+                      <p className="text-3xl font-bold text-foreground">{selectedDoc ? selectedDoc.elements.images : 0}</p>
                       <p className="text-sm text-muted-foreground mt-1">图片</p>
                     </CardContent>
                   </Card>
@@ -365,15 +416,15 @@ export function DocumentParsingInterface() {
                       <div className="space-y-3 text-sm">
                         <div className="flex justify-between py-1 border-b border-border/50">
                           <span className="text-muted-foreground">总页数</span>
-                          <span className="font-medium">{selectedDoc.pages}</span>
+                          <span className="font-medium">{selectedDoc ? selectedDoc.pages : 0}</span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-border/50">
                           <span className="text-muted-foreground">文件大小</span>
-                          <span className="font-medium">{selectedDoc.size}</span>
+                          <span className="font-medium">{selectedDoc ? selectedDoc.size : '未知'}</span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-border/50">
                           <span className="text-muted-foreground">上传日期</span>
-                          <span className="font-medium">{selectedDoc.uploadDate}</span>
+                          <span className="font-medium">{selectedDoc ? selectedDoc.uploadDate : ''}</span>
                         </div>
                       </div>
                     </CardContent>
@@ -382,22 +433,22 @@ export function DocumentParsingInterface() {
                     <CardContent className="p-4">
                       <h4 className="font-medium mb-2 text-sm text-muted-foreground uppercase tracking-wider">处理状态</h4>
                       <div className="flex items-center space-x-2 mb-4 mt-2">
-                        {selectedDoc.status === "completed" ? (
+                        {selectedDoc && selectedDoc.status === "completed" ? (
                           <CheckCircle className="w-6 h-6 text-green-500" />
-                        ) : selectedDoc.status === "processing" ? (
+                        ) : selectedDoc && selectedDoc.status === "processing" ? (
                           <Clock className="w-6 h-6 text-blue-500" />
                         ) : (
                           <AlertCircle className="w-6 h-6 text-orange-500" />
                         )}
                         <span className="text-lg font-medium capitalize">
-                          {selectedDoc.status === "completed"
+                          {selectedDoc && selectedDoc.status === "completed"
                             ? "解析完成"
-                            : selectedDoc.status === "processing"
+                            : selectedDoc && selectedDoc.status === "processing"
                               ? "正在处理"
                               : "等待处理"}
                         </span>
                       </div>
-                      <Progress value={selectedDoc.status === "completed" ? 100 : 45} className="h-2" />
+                      <Progress value={selectedDoc && selectedDoc.status === "completed" ? 100 : 45} className="h-2" />
                     </CardContent>
                   </Card>
                   <Card>
@@ -720,7 +771,7 @@ export function DocumentParsingInterface() {
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="doc-title">文档标题</Label>
-                        <Input id="doc-title" placeholder="请输入文档标题" defaultValue={selectedDoc.name} />
+                        <Input id="doc-title" placeholder="请输入文档标题" defaultValue={selectedDoc ? selectedDoc.name : ''} />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="doc-category">文档分类</Label>
@@ -760,7 +811,7 @@ export function DocumentParsingInterface() {
                             <Type className="w-4 h-4 text-blue-500" />
                             <div>
                               <p className="text-sm font-medium">文本内容</p>
-                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.text} 个文本块</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc ? selectedDoc.elements.text : 0} 个文本块</p>
                             </div>
                           </div>
                           <Switch defaultChecked />
@@ -770,7 +821,7 @@ export function DocumentParsingInterface() {
                             <Grid3X3 className="w-4 h-4 text-purple-500" />
                             <div>
                               <p className="text-sm font-medium">表格数据</p>
-                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.tables} 个表格</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc ? selectedDoc.elements.tables : 0} 个表格</p>
                             </div>
                           </div>
                           <Switch defaultChecked />
@@ -780,7 +831,7 @@ export function DocumentParsingInterface() {
                             <FileImage className="w-4 h-4 text-orange-500" />
                             <div>
                               <p className="text-sm font-medium">图片内容</p>
-                              <p className="text-xs text-muted-foreground">包含 {selectedDoc.elements.images} 个图片</p>
+                              <p className="text-xs text-muted-foreground">包含 {selectedDoc ? selectedDoc.elements.images : 0} 个图片</p>
                             </div>
                           </div>
                           <Switch />

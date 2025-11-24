@@ -272,6 +272,7 @@ export function OnlyOfficeEditor({
             {isPdfDoc ? <FileText className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
           </div>
           <span className="text-foreground">{isPdfDoc ? '文档预览' : '文档编辑'}</span>
+          <span className="text-xs text-muted-foreground max-w-[280px] truncate">{docName || (docUrl ? docUrl.split('/').pop() : '')}</span>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="h-6 px-2 font-normal bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200/50">
