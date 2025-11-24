@@ -18,9 +18,17 @@ interface OnlyOfficeEditorProps {
   callbackUrl?: string
   containerId?: string
   instanceId?: string
+  onEditorReady?: (editor: any) => void
 }
 
-export function OnlyOfficeEditor({ docUrl, docName, callbackUrl, containerId = 'onlyoffice-editor-container', instanceId = 'default' }: OnlyOfficeEditorProps) {
+export function OnlyOfficeEditor({ 
+  docUrl, 
+  docName, 
+  callbackUrl, 
+  containerId = 'onlyoffice-editor-container', 
+  instanceId = 'default', 
+  onEditorReady 
+}: OnlyOfficeEditorProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -43,6 +51,9 @@ export function OnlyOfficeEditor({ docUrl, docName, callbackUrl, containerId = '
   const initializeEditor = useCallback(() => {
     if (instanceRef.current) {
       setIsLoading(false)
+      // 如果实例已存在，也尝试再次通知父组件（防止父组件刷新丢失引用）
+      if (onEditorReady) onEditorReady(instanceRef.current)
+      
       const container = document.getElementById(containerId)
       if (container) {
         const editorFrame = container.querySelector('iframe')
@@ -140,6 +151,13 @@ export function OnlyOfficeEditor({ docUrl, docName, callbackUrl, containerId = '
         const editor = new (window as any).DocsAPI.DocEditor(containerId, config)
         instanceRef.current = editor
         editorRef.current = editor
+        
+        // 【修改点3】核心：初始化成功后，把编辑器实例传给父组件
+        if (onEditorReady) {
+          console.log(`OnlyOffice Instance [${instanceId}] Ready!`); // 加个日志方便调试
+          onEditorReady(editor)
+        }
+        
         setIsLoading(false)
       } catch (e: any) {
         setError(e?.message || String(e))
@@ -148,11 +166,11 @@ export function OnlyOfficeEditor({ docUrl, docName, callbackUrl, containerId = '
     }
 
     // 核心逻辑：使用 window.location.host，它会自动包含当前页面的端口 (10043)
-// 这样请求就会发往 http://192.168.3.10:10043/web-apps/...
-// 然后被 Nginx 拦截并转发给 OnlyOffice
-const defaultApi = typeof window !== 'undefined'
-  ? `${window.location.protocol}//${window.location.host}/web-apps/apps/api/documents/api.js`
-  : 'http://localhost:8082/web-apps/apps/api/documents/api.js' // 服务端渲染时的兜底
+    // 这样请求就会发往 http://192.168.3.10:10043/web-apps/...
+    // 然后被 Nginx 拦截并转发给 OnlyOffice
+    const defaultApi = typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.host}/web-apps/apps/api/documents/api.js`
+      : 'http://localhost:8082/web-apps/apps/api/documents/api.js' // 服务端渲染时的兜底
 
     if ((window as any).DocsAPI) {
       init()

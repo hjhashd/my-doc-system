@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     const customFileName = url.searchParams.get('fileName')
     const agentUserId = url.searchParams.get('agentUserId')
     const taskId = url.searchParams.get('taskId')
+    const subDir = url.searchParams.get('subDir') || ''
+    const docTypeHint = url.searchParams.get('docType') || ''
 
     // 按 OnlyOffice 回调状态处理：2=保存完成，4=强制保存
     if (status === 2 || status === 4) {
@@ -70,15 +72,29 @@ export async function POST(req: NextRequest) {
       // 修改：按照用户ID和任务ID的目录结构保存文件
       let saveDir: string
       let relativePath: string
-      
+
+      const isSpreadsheet = (payload.fileType?.toLowerCase() === 'xlsx' || payload.fileType?.toLowerCase() === 'xls')
+        || (extFromType === 'xlsx' || extFromType === 'xls')
+        || docTypeHint.toLowerCase() === 'spreadsheet'
+
+      const targetSubDir = (subDir && subDir.trim() !== '')
+        ? subDir.trim()
+        : (isSpreadsheet ? 'table' : '')
+
       if (agentUserId && taskId) {
-        // 使用用户ID和任务ID的目录结构
-        saveDir = path.join(process.cwd(), 'public', 'save', agentUserId, taskId)
-        relativePath = `/save/${agentUserId}/${taskId}/${fileName}`
+        saveDir = targetSubDir
+          ? path.join(process.cwd(), 'public', 'save', agentUserId, taskId, targetSubDir)
+          : path.join(process.cwd(), 'public', 'save', agentUserId, taskId)
+        relativePath = targetSubDir
+          ? `/save/${agentUserId}/${taskId}/${targetSubDir}/${fileName}`
+          : `/save/${agentUserId}/${taskId}/${fileName}`
       } else {
-        // 如果没有提供用户ID和任务ID，使用原来的保存方式
-        saveDir = path.join(process.cwd(), 'public', 'save')
-        relativePath = `/save/${fileName}`
+        saveDir = targetSubDir
+          ? path.join(process.cwd(), 'public', 'save', targetSubDir)
+          : path.join(process.cwd(), 'public', 'save')
+        relativePath = targetSubDir
+          ? `/save/${targetSubDir}/${fileName}`
+          : `/save/${fileName}`
       }
       
       await fs.promises.mkdir(saveDir, { recursive: true })
@@ -104,6 +120,7 @@ export async function POST(req: NextRequest) {
         fileName,
         agentUserId,
         taskId,
+        subDir: targetSubDir,
         saveDir,
         relativePath
       })
@@ -117,7 +134,8 @@ export async function POST(req: NextRequest) {
         docUrl, 
         localUrl,
         agentUserId,
-        taskId
+        taskId,
+        subDir: targetSubDir
       })
     }
 

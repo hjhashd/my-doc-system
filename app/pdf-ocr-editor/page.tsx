@@ -26,8 +26,95 @@ export default function PDFOCREditorPage() {
   const [isPolling, setIsPolling] = useState(false)
   const [editorInitialized, setEditorInitialized] = useState(false) // 新增：跟踪编辑器是否已初始化
   
+  // [修改点 1] 新增两个 state 来存储编辑器实例
+  const [leftEditor, setLeftEditor] = useState<any>(null)
+  const [rightEditor, setRightEditor] = useState<any>(null)
+  
   const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
   const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
+  
+  // [修改点 2] 联动核心逻辑
+  useEffect(() => {
+    // 只有当两个编辑器都就绪时才启动
+    if (viewMode !== 'split' || !leftEditor || !rightEditor) {
+      // 调试日志：看看哪个还没准备好
+      // console.log('Waiting for editors...', { left: !!leftEditor, right: !!rightEditor, mode: viewMode });
+      return;
+    }
+
+    console.log("✅ 文档联动已启动！");
+    console.log("右侧编辑器实例:", rightEditor);
+    console.log("左侧编辑器实例:", leftEditor);
+
+    // 检查编辑器实例的可用方法
+    console.log("右侧编辑器可用方法:", Object.getOwnPropertyNames(rightEditor));
+    console.log("左侧编辑器可用方法:", Object.getOwnPropertyNames(leftEditor));
+
+    const syncInterval = setInterval(() => {
+      try {
+        // 方法1：尝试通过编辑器实例获取iframe并访问其内容
+        const rightContainer = document.getElementById('onlyoffice-editor-container-right');
+        const leftContainer = document.getElementById('onlyoffice-editor-container-left');
+        
+        if (rightContainer && leftContainer) {
+          const rightFrame = rightContainer.querySelector('iframe');
+          const leftFrame = leftContainer.querySelector('iframe');
+          
+          if (rightFrame && leftFrame) {
+            try {
+              const rightWindow = rightFrame.contentWindow;
+              const leftWindow = leftFrame.contentWindow;
+              
+              if (rightWindow && leftWindow) {
+                console.log("找到编辑器窗口对象");
+                
+                // 检查是否有 OnlyOffice API
+                if (rightWindow.Api && leftWindow.Api) {
+                  console.log("找到 OnlyOffice API");
+                  
+                  // 在右侧编辑器中查找隐藏标记
+                  const rightDoc = rightWindow.Api.GetDocument();
+                  const rightSelection = rightDoc.GetRangeBySelect();
+                  const rightParagraph = rightSelection.GetParagraph(0);
+                  
+                  // 向下查找 50 个段落
+                  let targetPage = null;
+                  let tempPara = rightParagraph;
+                  
+                  for (let i = 0; i < 50; i++) {
+                    if (!tempPara) break;
+                    const text = tempPara.GetText().trim();
+                    const match = text.match(/\[#PDF-LOC:(\d+)#\]/);
+                    if (match && match[1]) {
+                      targetPage = parseInt(match[1]);
+                      break;
+                    }
+                    tempPara = tempPara.GetNextParagraph();
+                  }
+                  
+                  if (targetPage !== null && !isNaN(targetPage)) {
+                    console.log("🎯 捕获到光标所在 PDF 页码:", targetPage);
+                    const pdfIndex = targetPage - 1;
+                    
+                    // 在左侧PDF中跳转到指定页面
+                    leftWindow.Api.asc_moveToPage(pdfIndex);
+                  }
+                } else {
+                  console.log("未找到 OnlyOffice API，等待编辑器完全加载...");
+                }
+              }
+            } catch (e) {
+              console.error("访问编辑器内容时出错:", e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("联动过程中出错:", error);
+      }
+    }, 800);
+
+    return () => clearInterval(syncInterval);
+  }, [viewMode, leftEditor, rightEditor]);
   
   // 监听 Sidebar 状态
   useEffect(() => {
@@ -224,6 +311,8 @@ export default function PDFOCREditorPage() {
                     callbackUrl={callbackUrl}
                     containerId="onlyoffice-editor-container-left"
                     instanceId="left"
+                    // [关键] 绑定左侧实例
+                    onEditorReady={setLeftEditor}
                   />
                 ) : (
                   <Card className="h-full flex items-center justify-center bg-muted/20 border-dashed border-2 shadow-none">
@@ -270,6 +359,8 @@ export default function PDFOCREditorPage() {
                     docUrl={docUrl}
                     docName={docName}
                     callbackUrl={callbackUrl}
+                    // [关键] 绑定右侧实例 (注意: 只有在 split 模式下我们才需要绑定这个来做联动)
+                    onEditorReady={setRightEditor}
                   />
                 )}
               </div>
