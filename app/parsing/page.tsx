@@ -1,4 +1,6 @@
-import { DocumentParsingInterface } from "@/components/document-parsing-interface"
+"use client"
+
+import DocumentParsingInterface from "@/components/document-parsing-interface"
 
 export default function DocumentParsingPage() {
   return (
