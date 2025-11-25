@@ -231,16 +231,21 @@ export function DocumentUpload() {
   return (
     <div className="p-6 space-y-6">
       {isProcessing && (
-        <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle>正在处理文档</CardTitle>
-              <CardDescription>{processingMessage || '请稍候...'}</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <div className="fixed inset-0 bg-muted/30 z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-2xl shadow-lg border w-full max-w-md">
+            <div className="relative w-16 h-16 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-primary/10"></div>
+              <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+              <FileText className="w-6 h-6 text-primary" />
+            </div>
+            <div className="text-center space-y-1 w-full">
+              <h3 className="font-semibold text-lg text-foreground">正在处理文档</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                {processingMessage || '请稍候...'}
+              </p>
               <Progress value={processingProgress} className="w-full" />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       )}
       <div className="flex items-center justify-between">
