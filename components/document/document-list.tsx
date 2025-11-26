@@ -12,7 +12,8 @@ import {
   FileText,
   ArrowRight, // 换个更简洁的箭头
   AlertCircle,
-  Search
+  Search,
+  Brain
 } from "lucide-react"
 import { Document } from "@/types/document"
 import { cn } from "@/lib/utils"
@@ -29,6 +30,8 @@ interface DocumentListProps {
   onToggleSelect: (id: string) => void;
   onToggleAll: (checked: boolean) => void;
   onViewDocument: (doc: Document) => void;
+  onSmartParse?: (doc: Document) => void;
+  isSmartParsing?: boolean;
 }
 
 export const DocumentList = memo(function DocumentList({
@@ -41,7 +44,9 @@ export const DocumentList = memo(function DocumentList({
   onRefresh,
   onToggleSelect,
   onToggleAll,
-  onViewDocument
+  onViewDocument,
+  onSmartParse,
+  isSmartParsing = false
 }: DocumentListProps) {
   
   const isAllSelected = documents.length > 0 && selectedIds.length === documents.length;
@@ -139,21 +144,37 @@ export const DocumentList = memo(function DocumentList({
                         </div>
                       </div>
                       
-                      {/* 只有选中时才显示的“进入箭头”，或者hover时显示 */}
-                      <Button
-                        variant="ghost" 
-                        size="icon"
-                        className={cn(
-                            "absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full",
-                            isSelected ? "text-primary opacity-100" : "opacity-0 group-hover:opacity-50"
+                      {/* 只有选中时才显示的"进入箭头"，或者hover时显示 */}
+                      <div className="flex items-center gap-1 absolute right-2 top-1/2 -translate-y-1/2">
+                        {onSmartParse && isSelected && (
+                          <Button
+                            variant="ghost" 
+                            size="icon"
+                            className="w-6 h-6 rounded-full text-green-600 hover:bg-green-50"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onSmartParse(doc);
+                            }}
+                            disabled={isSmartParsing}
+                          >
+                             <Brain className="w-4 h-4" />
+                          </Button>
                         )}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onViewDocument(doc);
-                        }}
-                      >
-                         <ArrowRight className="w-4 h-4" />
-                      </Button>
+                        <Button
+                          variant="ghost" 
+                          size="icon"
+                          className={cn(
+                              "w-6 h-6 rounded-full",
+                              isSelected ? "text-primary opacity-100" : "opacity-0 group-hover:opacity-50"
+                          )}
+                          onClick={(e) => {
+                              e.stopPropagation();
+                              onViewDocument(doc);
+                          }}
+                        >
+                           <ArrowRight className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   )
                 })

@@ -24,10 +24,11 @@ export async function GET(req: NextRequest) {
       const metadataPath = path.join(taskPath, 'metadata.json')
       
       let fileName = `未命名文档-${taskId}`
+      let physicalFileName = null
       let updateTime = ''
       let isValid = false
 
-      // 1. 优先从 metadata 读取虚拟名称
+      // 1. 优先从 metadata 读取虚拟名称和物理文件名
       if (fs.existsSync(metadataPath)) {
         try {
           const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
           } else if (meta.physicalFile) {
             fileName = meta.physicalFile
           }
+          physicalFileName = meta.physicalFile // 保存物理文件名
           updateTime = meta.lastModified
           isValid = true
         } catch {}
@@ -47,6 +49,7 @@ export async function GET(req: NextRequest) {
           const files = fs.readdirSync(taskPath).filter(f => f.endsWith('.docx') && !f.startsWith('~$'))
           if (files.length > 0) {
             fileName = files[0]
+            physicalFileName = files[0] // 同时保存为物理文件名
             const stats = fs.statSync(path.join(taskPath, files[0]))
             updateTime = stats.mtime.toISOString()
             isValid = true
@@ -61,6 +64,7 @@ export async function GET(req: NextRequest) {
       return {
         id: taskId,
         name: fileName,
+        physicalName: physicalFileName, // 新增物理文件名字段
         type: 'DOCX',
         uploadDate: formattedDate,
         status: 'completed',

@@ -19,6 +19,8 @@ interface OnlyOfficeEditorProps {
   containerId?: string
   instanceId?: string
   onEditorReady?: (editor: any) => void
+  documentType?: string // 新增：明确指定文档类型
+  fileType?: string // 新增：明确指定文件类型
 }
 
 export function OnlyOfficeEditor({ 
@@ -27,7 +29,9 @@ export function OnlyOfficeEditor({
   callbackUrl, 
   containerId = 'onlyoffice-editor-container', 
   instanceId = 'default', 
-  onEditorReady 
+  onEditorReady,
+  documentType, // 新增：明确指定文档类型
+  fileType // 新增：明确指定文件类型
 }: OnlyOfficeEditorProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -72,14 +76,33 @@ export function OnlyOfficeEditor({
       return
     }
 
-    const fileExt = docUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || 'docx'
+    // 优先从传入的 fileType 参数获取文件类型
+    let fileExt = fileType;
+    
+    // 如果没有明确指定 fileType，则从 docName 获取文件扩展名
+    if (!fileExt) {
+      fileExt = docName?.split('.').pop()?.toLowerCase();
+    }
+    
+    // 如果 docName 也没有扩展名，再尝试从 docUrl 获取
+    if (!fileExt) {
+      fileExt = docUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+    }
+    
+    // 默认兜底
+    fileExt = fileExt || 'docx';
     const title = docName || docUrl.split('/').pop() || `文档-${Date.now()}`
     const isEditable = ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'].includes(fileExt)
     const editorMode = fileExt === 'pdf' ? 'view' : (isEditable ? 'edit' : 'view')
-    let docType = 'word'
-    if (['xlsx', 'xls', 'csv'].includes(fileExt)) docType = 'spreadsheet'
-    else if (['pptx', 'ppt'].includes(fileExt)) docType = 'presentation'
-    else if (fileExt === 'pdf') docType = 'word'
+    
+    // 优先从传入的 documentType 参数获取文档类型
+    let docType = documentType;
+    if (!docType) {
+      docType = 'word'
+      if (['xlsx', 'xls', 'csv'].includes(fileExt)) docType = 'cell'
+      else if (['pptx', 'ppt'].includes(fileExt)) docType = 'slide'
+      else if (fileExt === 'pdf') docType = 'word'
+    }
 
     const init = () => {
       try {

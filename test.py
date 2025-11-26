@@ -197,7 +197,7 @@ async def monitor_task_timeout(task_id):
         await asyncio.sleep(10)
 
 
-async def PDF_TO_WORD(pdf_input_path, pdf_out_path, task_id, file_name):
+async def PDF_TO_WORD(pdf_input_path, pdf_out_path, task_id, file_name, agentUserId):
     # 记录开始处理时间
     process_start_time = datetime.now()
     formatted_start_time = process_start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -296,7 +296,18 @@ async def PDF_TO_WORD(pdf_input_path, pdf_out_path, task_id, file_name):
         print(table_dir)
         print(out_docx_dir)
 
-        _,task_status_return = json_feature_extraction_api.generate_word_from_jsons(json_dir, img_dir, table_dir, out_docx_dir)
+        # 构造 Web 前缀 (Root-Relative Path)
+        # 注意：这里不需要 img/ 或 table/，因为 API 内部会自己加
+        web_path_prefix = f"/save/{agentUserId}/{task_id}"
+        
+        # 调用生成函数
+        _, task_status_return = json_feature_extraction_api.generate_word_from_jsons(
+            json_dir,
+            img_dir,
+            table_dir,
+            out_docx_dir,
+            url_prefix=web_path_prefix  # <--- 传入这个新参数
+        )
 
 
         # 程序执行成功时给前端的返回
@@ -395,7 +406,8 @@ async def generate_report(report: ReportRequest, background_tasks: BackgroundTas
             task_id=report.task_id,
             pdf_input_path=input_pdf_id_dir,
             pdf_out_path=output_pdf_id_path,
-            file_name=file_name_without_ext
+            file_name=file_name_without_ext,
+            agentUserId=report.agentUserId
         )
 
         # 初始化响应，返回给前端的参数

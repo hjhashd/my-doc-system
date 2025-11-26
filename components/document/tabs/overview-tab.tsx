@@ -8,9 +8,12 @@ import { Document } from "@/types/document"
 
 interface OverviewTabProps {
   doc: Document | null;
+  isParsing?: boolean;
+  parsingProgress?: number;
+  parsingStatusText?: string;
 }
 
-export function OverviewTab({ doc }: OverviewTabProps) {
+export function OverviewTab({ doc, isParsing = false, parsingProgress = 0, parsingStatusText = "" }: OverviewTabProps) {
   if (!doc) return <div className="text-center py-10 text-muted-foreground">请先选择一个文档</div>
 
   return (
@@ -40,7 +43,9 @@ export function OverviewTab({ doc }: OverviewTabProps) {
           <CardContent className="p-5">
             <h4 className="font-semibold mb-4 text-xs text-primary uppercase tracking-wider">处理状态</h4>
             <div className="flex items-center space-x-3 mb-4 mt-2">
-              {doc.status === "completed" ? (
+              {isParsing ? (
+                <Clock className="w-8 h-8 text-blue-500 animate-pulse" />
+              ) : doc.status === "completed" ? (
                 <CheckCircle className="w-8 h-8 text-green-500" />
               ) : doc.status === "processing" ? (
                 <Clock className="w-8 h-8 text-blue-500 animate-pulse" />
@@ -49,12 +54,14 @@ export function OverviewTab({ doc }: OverviewTabProps) {
               )}
               <div>
                 <div className="text-lg font-bold capitalize">
-                  {doc.status === "completed" ? "解析完成" : doc.status === "processing" ? "正在处理" : "等待处理"}
+                  {isParsing ? "正在处理" : doc.status === "completed" ? "解析完成" : doc.status === "processing" ? "正在处理" : "等待处理"}
                 </div>
-                <div className="text-xs text-muted-foreground">耗时: 12.5s</div>
+                <div className="text-xs text-muted-foreground">
+                  {isParsing ? parsingStatusText : "耗时: 12.5s"}
+                </div>
               </div>
             </div>
-            <Progress value={doc.status === "completed" ? 100 : 45} className="h-3 bg-background border border-border/30" />
+            <Progress value={isParsing ? parsingProgress : doc.status === "completed" ? 100 : 45} className="h-3 bg-background border border-border/30" />
           </CardContent>
         </Card>
 

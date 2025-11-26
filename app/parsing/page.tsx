@@ -1,22 +1,24 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import http from "@/lib/http"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { RefreshCw, Zap, Trash2, Download, LayoutGrid, List } from "lucide-react"
+import { RefreshCw, Zap, Trash2, LayoutGrid, List, Brain, Loader2 } from "lucide-react"
 
 import { DocumentList } from "@/components/document/document-list"
 import { OverviewTab } from "@/components/document/tabs/overview-tab"
 import { ContentTab } from "@/components/document/tabs/content-tab"
+import { ExportTab } from "@/components/document/tabs/export-tab"
 import { Document, DocumentDetails } from "@/types/document"
 
 export default function DocumentParsingInterface() {
   const searchParams = useSearchParams()
   const router = useRouter()
   
+  // === 基础数据状态 ===
   const [documents, setDocuments] = useState<Document[]>([])
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -25,7 +27,28 @@ export default function DocumentParsingInterface() {
   const [listError, setListError] = useState<string | null>(null)
   const [docDetails, setDocDetails] = useState<DocumentDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false)
+  
+  // === 智能解析状态 ===
+  const [isSmartParsing, setIsSmartParsing] = useState(false)
+  const [smartParsingProgress, setSmartParsingProgress] = useState(0)
+  const [smartParsingStatusText, setSmartParsingStatusText] = useState("")
+  const smartTimerRef = useRef<NodeJS.Timeout | null>(null) // 用于真正停止轮询
+  
+  // === 普通解析状态 ===
+  const [isParsing, setIsParsing] = useState(false)
+  const [parsingProgress, setParsingProgress] = useState(0)
+  const [parsingStatusText, setParsingStatusText] = useState("")
+  const parseTimerRef = useRef<NodeJS.Timeout | null>(null) // 用于真正停止轮询
 
+  // 清理函数：组件卸载时清除定时器
+  useEffect(() => {
+    return () => {
+      if (smartTimerRef.current) clearInterval(smartTimerRef.current)
+      if (parseTimerRef.current) clearInterval(parseTimerRef.current)
+    }
+  }, [])
+
+  // 1. 获取文档列表
   const fetchDocuments = useCallback(async () => {
     try {
       setListLoading(true)
@@ -39,6 +62,8 @@ export default function DocumentParsingInterface() {
       if (res && res.ok && Array.isArray(res.data)) {
         setDocuments(res.data)
         if (!selectedDoc && res.data.length > 0) {
+          // 如果当前没有选中项，默认选中第一个
+          // 注意：如果想保持用户之前的选择，可以在这里加逻辑判断
           setSelectedDoc(res.data[0])
         }
       } else {
@@ -53,11 +78,13 @@ export default function DocumentParsingInterface() {
     }
   }, [searchParams, selectedDoc])
 
+  // 2. 获取文档详情 (模拟或实际请求)
   const fetchDocumentDetails = useCallback(async (docId: string) => {
     if (!docId) return;
     try {
       setDetailsLoading(true);
       setDocDetails(null); 
+      // 这里可以替换为真实的后端请求
       await new Promise(r => setTimeout(r, 600));
       setDocDetails({ text: [], tables: [], images: [] }); 
     } catch (error) {
@@ -67,6 +94,7 @@ export default function DocumentParsingInterface() {
     }
   }, []);
 
+  // 3. 列表选择逻辑
   const handleToggleSelect = (id: string) => {
     setSelectedIds(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -81,35 +109,517 @@ export default function DocumentParsingInterface() {
     }
   };
 
-  // 跳转查看/编辑逻辑
+  // 4. 跳转查看/编辑逻辑
   const handleViewDocument = (doc: Document) => {
-    // 获取当前的 agentUserId，如果没有则为空字符串
     const agentUserId = searchParams.get('agentUserId') || '';
-    
-    // 构建查询参数
     const query = new URLSearchParams({
         fileName: doc.name,
         docName: doc.name,
-        // 假设 doc 对象里有 taskId (id)，如果是真实数据需要确认字段名
         taskId: doc.id, 
-        mode: 'edit' // 默认进入编辑模式
+        mode: 'edit'
     });
 
     if (agentUserId) {
         query.append('agentUserId', agentUserId);
     }
 
-    // 跳转到 pdf-ocr-editor 页面
     router.push(`/pdf-ocr-editor?${query.toString()}`);
   };
 
-  const handleBatchParse = () => {
-    if (selectedIds.length === 0) return;
-    alert(`开始批量解析 ${selectedIds.length} 个文档`);
+  // 5. 核心逻辑：智能解析 (含停止功能)
+  const handleRunSmartParsing = async (doc: Document) => {
+    if (!doc) return
+
+    // 停止逻辑：如果正在运行，则点击变为停止
+    if (isSmartParsing) {
+        if (smartTimerRef.current) clearInterval(smartTimerRef.current)
+        setIsSmartParsing(false)
+        setSmartParsingStatusText("已手动停止解析")
+        return
+    }
+
+    try {
+      setIsSmartParsing(true)
+      setSmartParsingProgress(0)
+      setSmartParsingStatusText("正在检查文档是否已解析...")
+      
+      const fileName = doc.physicalName || doc.name
+      const agentUserId = searchParams.get('agentUserId') || '123'
+      
+      // 5.1 提交任务
+      console.log("提交智能解析任务:", { taskId: doc.id, fileName })
+      const runRes = await http.post('/api/pipeline/run_check', { 
+        agentUserId, 
+        taskId: doc.id, 
+        fileName 
+      })
+
+      if (!runRes.ok) throw new Error(runRes.message || '提交失败')
+
+      const queryId = runRes.query_id
+      setSmartParsingStatusText(`任务已提交，ID: ${queryId}`)
+
+      // 5.2 开始轮询
+      smartTimerRef.current = setInterval(async () => {
+        try {
+          const statusRes: any = await http.get(`/api/pipeline/status?query_id=${queryId}`)
+          
+          if (statusRes.ok) {
+            const { status, percent, message } = statusRes
+            setSmartParsingProgress(percent)
+            setSmartParsingStatusText(message || `处理中 ${percent}%`)
+
+            // === 成功 ===
+            if (status === 'success') {
+              if (smartTimerRef.current) clearInterval(smartTimerRef.current)
+              setSmartParsingStatusText("解析完成，正在获取结果...")
+              
+              // 5.3 获取结果
+              try {
+                  const resultUrl = `/api/pipeline/result?agentUserId=${agentUserId}&taskId=${doc.id}&fileName=${encodeURIComponent(fileName)}`
+                  const resultRes: any = await http.get(resultUrl)
+                  
+                  if (resultRes.ok) {
+                      setIsSmartParsing(false)
+                      const parsedData = resultRes.data
+                        
+                      // 处理智能解析结果 - 混合所有类型
+                      const convertedDetails: DocumentDetails = {
+                        text: [],
+                        tables: [],
+                        images: []
+                      };
+                      
+                      // 处理blocks数据，提取图片信息
+                      if (parsedData && Array.isArray(parsedData)) {
+                        // 处理文本数据
+                        convertedDetails.text = parsedData.filter((item: any) => 
+                        item.content && !item.content.includes('🖼️ 点击查看高清原图') && !item.content.startsWith('📊 点击编辑关联表格')
+                      ).map((item: any, index: number) => ({
+                          id: item.block_id || `text-${index}`,
+                          type: 'text',
+                          content: item.content || item.heading_title || '',
+                          page: 1, // 默认页码
+                          confidence: 0.9, // 默认置信度
+                          metadata: {
+                            heading_level: item.heading_level,
+                            heading_title: item.heading_title,
+                            heading_meta: item.heading_meta,
+                            char_start: item.char_start,
+                            char_end: item.char_end,
+                            line_start: item.line_start,
+                            line_end: item.line_end
+                          }
+                        }));
+
+                        // 处理表格数据
+                        convertedDetails.tables = parsedData.filter((item: any) => 
+                          item.content && item.content.startsWith('📊 点击编辑关联表格')
+                        ).map((item: any, index: number) => {
+                          // 提取表格信息
+                          // 示例格式: "📊 点击编辑关联表格 1 (Excel) \n[#PDF-LOC:1#]"
+                          const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
+                          const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
+                          
+                          // 提取PDF页码位置信息
+                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                          // 注意：文件系统通常使用 0起始索引，而 OCR 标记通常是 1起始页码
+                          // 所以我们需要将 OCR 页码减 1 来匹配文件名
+                          // 如果没有找到页码，默认为 '0'
+                          const pdfLoc = pdfLocMatch ? (parseInt(pdfLocMatch[1]) - 1).toString() : '0';
+
+                          // 假设表格文件名格式为 XA_certificate_0_table_1.xlsx (baseName_pageIndex_table_tableIndex.xlsx)
+                          // 且位于 table 子目录中
+                          const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
+                          const tablePath = `table/${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
+                          
+                          // 构建相对路径 key (用于匹配 metadata)
+                          // 注意：这里需要根据实际保存路径结构构建 key
+                          // 假设结构: /save/{agentUserId}/{taskId}/table/xxx.xlsx
+                          // 我们只需要 table/xxx.xlsx 部分作为相对 key，或者完整相对路径
+                          // 这里我们使用完整相对路径作为 key: /save/{agentUserId}/{taskId}/{tablePath}
+                          const agentUserId = searchParams.get('agentUserId') || '123';
+                          const relativeKey = `/save/${agentUserId}/${doc.id}/${tablePath}`;
+                          
+                          // 检查是否有自定义名称
+                      let displayName = item.heading_title || `表格 ${tableId}`;
+                      // 不再使用fileNames映射，直接使用原始名称
+                      // if (fileNames && fileNames[relativeKey]) {
+                      //   displayName = fileNames[relativeKey].displayName;
+                      // } else {
+                      //   // 如果没有记录，初始化一条默认记录 (可选)
+                      //   // 只有在用户点击时才真正创建可能更好，或者在这里静默创建
+                      //   // 这里我们只在前端显示默认值，不写入后端
+                      // }
+
+                      return {
+                        id: item.block_id || `table-${index}`,
+                        type: 'table',
+                        content: displayName, // 使用自定义名称
+                        page: 1,
+                        confidence: 0.9,
+                        metadata: {
+                          heading_level: item.heading_level,
+                          heading_title: item.heading_title,
+                          heading_meta: item.heading_meta,
+                          char_start: item.char_start,
+                          char_end: item.char_end,
+                          line_start: item.line_start,
+                          line_end: item.line_end,
+                          table_path: tablePath, // 存储表格路径
+                          original_name: item.heading_title || `表格 ${tableId}`, // 使用heading_title作为原始名称
+                          relative_key: relativeKey // 保存 key 用于更新
+                        }
+                      };
+                        });
+                        
+                        // 处理图片数据 - 从content中提取PDF位置信息并匹配图片文件
+                        convertedDetails.images = parsedData.filter((item: any) => 
+                          item.content && item.content.includes('🖼️ 点击查看高清原图')
+                        ).map((item: any, index: number) => {
+                          // 从content中提取PDF位置信息
+                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                          const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
+                          
+                          // 构建图片URL - 使用图片代理API
+                           const imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/123/4/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                          
+                          return {
+                            id: item.block_id || `image-${index}`,
+                            type: 'image',
+                            content: item.heading_title || `图片 ${pdfLoc}`,
+                            page: 1, // 默认页码
+                            confidence: 0.9, // 默认置信度
+                            imageUrl: imageUrl,
+                            metadata: {
+                              heading_level: item.heading_level,
+                              heading_title: item.heading_title,
+                              heading_meta: item.heading_meta,
+                              char_start: item.char_start,
+                              char_end: item.char_end,
+                              line_start: item.line_start,
+                              line_end: item.line_end,
+                              pdf_loc: pdfLoc
+                            }
+                          };
+                        });
+                      }
+                      
+                      setDocDetails(convertedDetails);
+                      setSmartParsingStatusText("智能解析成功！数据已加载")
+                  } else {
+                      setSmartParsingStatusText("解析成功但获取文件失败")
+                  }
+              } catch (fetchErr) {
+                  console.error("获取结果出错:", fetchErr)
+                  setSmartParsingStatusText("获取结果出错")
+              }
+
+            // === 失败 ===
+            } else if (status === 'failed' || status === 'error') {
+              if (smartTimerRef.current) clearInterval(smartTimerRef.current)
+              setIsSmartParsing(false)
+              setSmartParsingStatusText(`解析失败: ${message}`)
+            }
+          }
+        } catch (err) {
+          console.error("轮询出错:", err)
+        }
+      }, 2000)
+
+    } catch (error: any) {
+      console.error("智能解析请求出错:", error)
+      setIsSmartParsing(false)
+      setSmartParsingStatusText(`请求出错: ${error.message}`)
+    }
+  }
+
+  // 6. 核心逻辑：普通解析 (含停止功能)
+  const handleRunParsing = async (doc: Document) => {
+    if (!doc) return
+    
+    // 停止逻辑
+    if (isParsing) {
+        if (parseTimerRef.current) clearInterval(parseTimerRef.current)
+        setIsParsing(false)
+        setParsingStatusText("已手动停止解析")
+        return
+    }
+
+    try {
+      setIsParsing(true)
+      setParsingProgress(0)
+      setParsingStatusText("正在提交解析任务...")
+      
+      const fileName = doc.physicalName || doc.name
+      const agentUserId = searchParams.get('agentUserId') || '123'
+      
+      console.log("提交解析任务:", { taskId: doc.id, fileName })
+      const runRes = await http.post('/api/pipeline/run', { 
+        agentUserId, 
+        taskId: doc.id, 
+        fileName
+      })
+
+      if (!runRes.ok) throw new Error(runRes.message || '提交失败')
+
+      const queryId = runRes.query_id
+      setParsingStatusText("任务提交成功，开始处理...")
+      
+      // 开始轮询
+      parseTimerRef.current = setInterval(async () => {
+        try {
+          const statusRes: any = await http.get(`/api/pipeline/status?query_id=${queryId}`)
+          
+          if (statusRes.ok) {
+            const { status, percent, message } = statusRes
+            setParsingProgress(percent)
+            setParsingStatusText(message || `处理中 ${percent}%`)
+
+            if (status === 'success') {
+              if (parseTimerRef.current) clearInterval(parseTimerRef.current)
+              setParsingStatusText("解析完成，正在获取结果...")
+              
+              try {
+                const resultRes: any = await http.get(`/api/pipeline/result?agentUserId=${agentUserId}&taskId=${doc.id}&fileName=${encodeURIComponent(fileName)}`)
+                
+                if (resultRes.ok) {
+                  setIsParsing(false)
+                  setParsingStatusText("解析成功！")
+                  
+                  // 处理普通解析结果 - 转换数据结构
+                  const parsedData = resultRes.data
+                  const convertedDetails: DocumentDetails = {
+                    text: [],
+                    tables: [],
+                    images: []
+                  }
+                  
+                  // 根据解析结果转换数据结构
+                  if (parsedData && Array.isArray(parsedData)) {
+                    // 处理文本数据
+                    convertedDetails.text = parsedData.filter((item: any) => 
+                      item.content && !item.content.includes('🖼️ 点击查看高清原图') && !item.content.startsWith('📊 点击编辑关联表格')
+                    ).map((item: any, index: number) => ({
+                      id: item.block_id || `text-${index}`,
+                      type: 'text',
+                      content: item.content || item.heading_title || '',
+                      page: 1, // 默认页码
+                      confidence: 0.9, // 默认置信度
+                      metadata: {
+                        heading_level: item.heading_level,
+                        heading_title: item.heading_title,
+                        heading_meta: item.heading_meta,
+                        char_start: item.char_start,
+                        char_end: item.char_end,
+                        line_start: item.line_start,
+                        line_end: item.line_end
+                      }
+                    }));
+
+                    // 处理表格数据
+                    convertedDetails.tables = parsedData.filter((item: any) => 
+                      item.content && item.content.startsWith('📊 点击编辑关联表格')
+                    ).map((item: any, index: number) => {
+                      // 提取表格信息
+                      const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
+                      const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
+                      
+                      // 提取PDF页码位置信息
+                      const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                      const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : '0';
+
+                      const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
+                      const tablePath = `${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
+                      
+                      // 构建相对路径 key (用于匹配 metadata)
+                      const agentUserId = searchParams.get('agentUserId') || '123';
+                      // 普通解析可能没有 table/ 前缀，这里假设有
+                      const fullTablePath = `table/${tablePath}`; 
+                      const relativeKey = `/save/${agentUserId}/${doc.id}/${fullTablePath}`;
+                      
+                      // 检查是否有自定义名称
+                      let displayName = item.heading_title || `表格 ${tableId}`;
+                      if (fileNames && fileNames[relativeKey]) {
+                         displayName = fileNames[relativeKey].displayName;
+                      }
+
+                      return {
+                        id: item.block_id || `table-${index}`,
+                        type: 'table',
+                        content: displayName,
+                        page: 1,
+                        confidence: 0.9,
+                        metadata: {
+                          heading_level: item.heading_level,
+                          heading_title: item.heading_title,
+                          heading_meta: item.heading_meta,
+                          char_start: item.char_start,
+                          char_end: item.char_end,
+                          line_start: item.line_start,
+                          line_end: item.line_end,
+                          table_path: fullTablePath,
+                          original_name: item.heading_title || `表格 ${tableId}`, // 使用heading_title作为原始名称
+                          relative_key: relativeKey
+                        }
+                      };
+                    });
+                    
+                    // 处理图片数据 - 从content中提取PDF位置信息并匹配图片文件
+                    convertedDetails.images = parsedData.filter((item: any) => 
+                      item.content && item.content.includes('🖼️ 点击查看高清原图')
+                    ).map((item: any, index: number) => {
+                      // 从content中提取PDF位置信息
+                      const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                      const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
+                      
+                      // 构建图片URL - 使用图片代理API
+                      const imageUrl = `/api/image-proxy?path=/public/save/123/4/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                      
+                      return {
+                        id: item.block_id || `image-${index}`,
+                        type: 'image',
+                        content: item.heading_title || `图片 ${pdfLoc}`,
+                        page: 1, // 默认页码
+                        confidence: 0.9, // 默认置信度
+                        imageUrl: imageUrl,
+                        metadata: {
+                          heading_level: item.heading_level,
+                          heading_title: item.heading_title,
+                          heading_meta: item.heading_meta,
+                          char_start: item.char_start,
+                          char_end: item.char_end,
+                          line_start: item.line_start,
+                          line_end: item.line_end,
+                          pdf_loc: pdfLoc
+                        }
+                      };
+                    });
+                  } else {
+                    // 兼容旧格式数据
+                    convertedDetails.text = parsedData
+                      .filter(item => item.type === 'text' || (!item.type && typeof item.content === 'string'))
+                      .map(item => ({
+                        id: item.id || `text-${Date.now()}-${Math.random()}`,
+                        type: 'text',
+                        content: item.content || '',
+                        page: item.page || 1,
+                        confidence: item.confidence || 0.9,
+                        metadata: {
+                          heading: item.heading || '',
+                          heading_level: item.heading_level || 0,
+                          position: item.position || { x: 0, y: 0, width: 0, height: 0 }
+                        }
+                      }))
+                      
+                    convertedDetails.tables = parsedData
+                      .filter(item => item.type === 'table')
+                      .map(item => ({
+                        id: item.id || `table-${Date.now()}-${Math.random()}`,
+                        type: 'table',
+                        content: item.content || '',
+                        page: item.page || 1,
+                        confidence: item.confidence || 0.9,
+                        metadata: {
+                          rows: item.rows || 0,
+                          columns: item.columns || 0,
+                          position: item.position || { x: 0, y: 0, width: 0, height: 0 }
+                        }
+                      }))
+                      
+                    convertedDetails.images = parsedData
+                      .filter(item => item.type === 'image')
+                      .map(item => ({
+                        id: item.id || `image-${Date.now()}-${Math.random()}`,
+                        type: 'image',
+                        content: item.content || '',
+                        page: item.page || 1,
+                        confidence: item.confidence || 0.9,
+                        imageUrl: item.image_url || item.url || '',
+                        metadata: {
+                          width: item.width || 0,
+                          height: item.height || 0,
+                          format: item.format || 'unknown',
+                          position: item.position || { x: 0, y: 0, width: 0, height: 0 }
+                        }
+                      }))
+                  }
+                  
+                  // 更新文档详情
+                  setDocDetails(convertedDetails)
+                } else {
+                  setParsingStatusText("解析成功但获取文件失败")
+                }
+              } catch (fetchErr) {
+                setParsingStatusText("获取结果出错")
+              }
+            } else if (status === 'failed' || status === 'error') {
+              if (parseTimerRef.current) clearInterval(parseTimerRef.current)
+              setIsParsing(false)
+              setParsingStatusText(`解析失败: ${message}`)
+            }
+          }
+        } catch (err) {
+          console.error("轮询出错:", err)
+        }
+      }, 2000)
+      
+      fetchDocuments()
+    } catch (error: any) {
+      setIsParsing(false)
+      setParsingStatusText(`请求出错: ${error.message}`)
+    }
   };
 
-  useEffect(() => { fetchDocuments() }, [fetchDocuments])
+  const handleOneClickSmartParse = () => {
+    if (selectedDoc) handleRunSmartParsing(selectedDoc)
+  };
 
+  const handleOneClickParse = () => {
+    if (selectedDoc) handleRunParsing(selectedDoc)
+  };
+
+  // === 元数据状态 ===
+  // const [fileNames, setFileNames] = useState<Record<string, any>>({})
+
+  // 0. 获取文件元数据
+  // const fetchFileMetadata = useCallback(async () => {
+  //   try {
+  //     const res: any = await http.get('/api/metadata/file-names')
+  //     if (res && res.files) {
+  //       setFileNames(res.files)
+  //     }
+  //   } catch (e) {
+  //     console.error('获取文件元数据失败', e)
+  //   }
+  // }, [])
+
+  // 更新单个文件的元数据
+  // const updateFileMetadata = async (filePath: string, displayName: string, fileType: string = 'xlsx') => {
+  //   try {
+  //     // 乐观更新本地状态
+  //     setFileNames(prev => ({
+  //       ...prev,
+  //       [filePath]: { displayName, fileType, updatedAt: new Date().toISOString() }
+  //     }))
+
+  //     // 发送请求
+  //     await http.post('/api/metadata/file-names', {
+  //       filePath,
+  //       displayName,
+  //       fileType
+  //     })
+  //   } catch (e) {
+  //     console.error('更新文件元数据失败', e)
+  //   }
+  // }
+
+  // 初始化加载
+  useEffect(() => { 
+    fetchDocuments() 
+  }, [fetchDocuments])
+
+  // 1. 获取文档列表监听选中变动，加载详情
   useEffect(() => {
     if (selectedDoc && selectedDoc.status === 'completed') {
        fetchDocumentDetails(selectedDoc.id);
@@ -119,10 +629,10 @@ export default function DocumentParsingInterface() {
   }, [selectedDoc, fetchDocumentDetails]);
 
   return (
-    // 背景色调整：使用系统默认背景，不强制白色，允许淡粉色透出
+    // UI：保持 Page.tsx 原有的风格
     <div className="p-4 md:p-6 space-y-4 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
       
-      {/* Header: 增加玻璃拟态效果 */}
+      {/* Header: 玻璃拟态效果 */}
       <div className="flex items-center justify-between shrink-0 bg-white/60 backdrop-blur-md p-4 rounded-xl border border-white/50 shadow-sm">
         <div>
           <h1 className="text-xl font-bold text-foreground tracking-tight flex items-center gap-2">
@@ -151,9 +661,46 @@ export default function DocumentParsingInterface() {
                   <RefreshCw className={`w-3.5 h-3.5 mr-2 ${listLoading ? 'animate-spin' : ''}`} />
                   刷新列表
                 </Button>
-                <Button size="sm" className="shadow-md bg-primary hover:bg-primary/90 transition-all">
-                  <Zap className="w-3.5 h-3.5 mr-2" />
-                  一键解析
+                
+                {/* 智能解析按钮：状态根据 isSmartParsing 变化 */}
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className={`shadow-md transition-all ${isSmartParsing ? 'bg-red-50 hover:bg-red-100 text-red-600 border-red-200' : 'bg-green-500 hover:bg-green-600 text-white'}`}
+                  onClick={handleOneClickSmartParse} 
+                  disabled={!selectedDoc}
+                >
+                  {isSmartParsing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                      停止解析
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-3.5 h-3.5 mr-2" />
+                      智能解析
+                    </>
+                  )}
+                </Button>
+
+                {/* 普通解析按钮：状态根据 isParsing 变化 */}
+                <Button 
+                  size="sm" 
+                  className={`shadow-md transition-all ${isParsing ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200' : 'bg-primary hover:bg-primary/90 text-white'}`}
+                  onClick={handleOneClickParse}
+                  disabled={!selectedDoc}
+                >
+                  {isParsing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                      停止解析
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 mr-2" />
+                      一键解析
+                    </>
+                  )}
                 </Button>
              </div>
           )}
@@ -174,6 +721,8 @@ export default function DocumentParsingInterface() {
           onToggleSelect={handleToggleSelect}
           onToggleAll={handleToggleAll}
           onViewDocument={handleViewDocument}
+          onSmartParse={handleRunSmartParsing}
+          isSmartParsing={isSmartParsing}
         />
 
         {/* Right: Details Tabs */}
@@ -211,15 +760,57 @@ export default function DocumentParsingInterface() {
               
               <div className="flex-1 min-h-0 overflow-hidden bg-transparent pt-4"> 
                 <TabsContent value="overview" className="mt-0 h-full overflow-auto pr-2 pb-4">
-                  <OverviewTab doc={selectedDoc} />
+                  <OverviewTab 
+                    doc={selectedDoc} 
+                    isParsing={isParsing || isSmartParsing}
+                    parsingProgress={isParsing ? parsingProgress : smartParsingProgress}
+                    parsingStatusText={isParsing ? parsingStatusText : smartParsingStatusText}
+                  />
                 </TabsContent>
 
                 <TabsContent value="content" className="mt-0 h-full overflow-hidden">
-                  <ContentTab details={docDetails} loading={detailsLoading} />
+                  <ContentTab 
+                    details={docDetails} 
+                    loading={detailsLoading} 
+                    onTableClick={(tablePath) => {
+                      if (!selectedDoc) return;
+                      const agentUserId = searchParams.get('agentUserId') || '123';
+                      
+                      // 构造跳转 URL
+                      // 1. 获取物理文件名 (例如 XA_certificate_res.docx)
+                      const physicalFileName = selectedDoc.physicalName || selectedDoc.name;
+                      
+                      // 2. 从 tablePath 中提取纯文件名 (例如 XA_certificate_1.xlsx)
+                      const tableFileName = tablePath.split('/').pop() || '';
+                      
+                      // 3. 直接使用原始文件名，不再使用自定义名称
+                      const displayName = tableFileName;
+                      
+                      // 4. 构造回调 URL，用于保存编辑后的内容
+                      // 必须传递 subDir=table，以确保保存到正确的 table 子目录
+                      // 注意：这里我们复用 pdf-ocr-editor 的逻辑，将 agentUserId 和 taskId 传递给 excel-editor
+                      
+                      const query = new URLSearchParams({
+                        docUrl: `/api/file-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${selectedDoc.id}/${tablePath}`,
+                        docName: displayName, // 使用原始文件名
+                        agentUserId: agentUserId,
+                        taskId: selectedDoc.id,
+                        tableDir: 'table',
+                        subDir: 'table' // 明确指定子目录
+                      });
+                      
+                      // 使用 window.open 在新标签页打开，避免覆盖当前页面
+                      window.open(`/excel-editor?${query.toString()}`, '_blank');
+                    }}
+                  />
                 </TabsContent>
                 
-                <TabsContent value="export" className="mt-0 h-full flex items-center justify-center">
-                  <div className="text-center text-muted-foreground text-sm">导出功能开发中...</div>
+                <TabsContent value="export" className="mt-0 h-full overflow-auto pr-2 pb-4">
+                  <ExportTab 
+                    doc={selectedDoc}
+                    details={docDetails}
+                    loading={detailsLoading}
+                  />
                 </TabsContent>
 
                 <TabsContent value="storage" className="mt-0 h-full flex items-center justify-center">
@@ -232,6 +823,38 @@ export default function DocumentParsingInterface() {
           </CardContent>
         </Card>
       </div>
+      
+      {/* 智能解析进度条 - 浮窗 */}
+      {isSmartParsing && (
+        <div className="fixed bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg border z-50 w-80 animate-in slide-in-from-bottom-5">
+           <div className="flex justify-between text-sm mb-2">
+              <span className="text-green-700 font-medium">智能解析进度</span>
+              <span className="text-green-700">{smartParsingProgress}%</span>
+           </div>
+           <div className="w-full bg-gray-100 rounded-full h-2.5 mb-2 overflow-hidden">
+              <div className="bg-green-500 h-2.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${smartParsingProgress}%` }}></div>
+           </div>
+           <div className="text-xs text-muted-foreground truncate">
+             {smartParsingStatusText}
+           </div>
+        </div>
+      )}
+      
+      {/* 普通解析进度条 - 浮窗 */}
+      {isParsing && (
+        <div className="fixed bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg border z-50 w-80 animate-in slide-in-from-bottom-5">
+           <div className="flex justify-between text-sm mb-2">
+              <span className="text-blue-700 font-medium">解析进度</span>
+              <span className="text-blue-700">{parsingProgress}%</span>
+           </div>
+           <div className="w-full bg-gray-100 rounded-full h-2.5 mb-2 overflow-hidden">
+              <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${parsingProgress}%` }}></div>
+           </div>
+           <div className="text-xs text-muted-foreground truncate">
+             {parsingStatusText}
+           </div>
+        </div>
+      )}
     </div>
   )
 }

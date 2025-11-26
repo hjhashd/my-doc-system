@@ -30,26 +30,39 @@ export default function ExcelEditorPage() {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* 简单的顶部导航栏 */}
-      <header className="h-12 border-b flex items-center px-4 bg-white shrink-0">
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={() => window.close()} // 如果是新标签页打开，点击返回关闭窗口
-          className="gap-2"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          关闭 / 返回
-        </Button>
-        <span className="ml-4 font-medium text-sm">{docName}</span>
+      <header className="h-14 border-b flex items-center px-4 bg-white shrink-0 justify-between">
+        <div className="flex items-center gap-4">
+            <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => window.close()} // 如果是新标签页打开，点击返回关闭窗口
+            className="gap-2 text-muted-foreground hover:text-foreground"
+            >
+            <ChevronLeft className="w-4 h-4" />
+            返回
+            </Button>
+            
+            <div className="h-6 w-px bg-border/60 mx-2"></div>
+            
+            <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-foreground">{docName}</span>
+            </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+            {/* 右侧操作区，预留 */}
+        </div>
       </header>
 
       {/* 全屏编辑器区域 */}
       <main className="flex-1 overflow-hidden">
         <OnlyOfficeEditor
           docUrl={docUrl}
-          docName={docName}
+          docName={docName} // 这里传给编辑器的名字，主要用于显示，实际保存还是用 callbackUrl 中的 fileName
           callbackUrl={callbackUrl} // 传入带参数的回调地址
           containerId="excel-editor-container" // 唯一的 ID
+          documentType="cell" // 明确指定为表格类型
+          fileType="xlsx" // 明确指定文件类型
         />
       </main>
     </div>

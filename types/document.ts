@@ -7,6 +7,7 @@ export interface DocumentElementCounts {
 export interface Document {
   id: string;
   name: string;
+  physicalName?: string; // 物理文件名
   type: string;
   uploadDate: string;
   status: 'completed' | 'processing' | 'pending' | 'failed';
@@ -22,6 +23,7 @@ export interface ContentDetailItem {
   content?: string; // 文本内容
   page: number;
   confidence: number;
+  imageUrl?: string; // 图片URL，用于图片预览
   // 可以根据实际后端返回扩展更多字段
   [key: string]: any; 
 }
