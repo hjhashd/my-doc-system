@@ -363,10 +363,10 @@ export default function DocumentParsingInterface() {
       </div>
 
       {/* 核心改动：一体化大卡片 */}
-      <Card className="flex-1 min-h-0 flex border-border/60 shadow-lg overflow-hidden bg-white">
+      <Card className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-0 border-border/60 shadow-lg overflow-hidden bg-white">
         
         {/* 左侧：列表栏 (固定宽度 + 响应式调整) */}
-        <div className="w-[320px] shrink-0 border-r border-border/40 bg-slate-50/50 flex flex-col">
+        <div className="w-full sm:w-[240px] lg:w-[280px] xl:w-[300px] shrink-0 border-r border-border/40 bg-slate-50/50 flex flex-col min-h-0">
           <DocumentList 
             documents={documents}
             selectedDoc={selectedDoc}
@@ -382,72 +382,78 @@ export default function DocumentParsingInterface() {
         </div>
 
         {/* 右侧：详情内容区 (自适应宽度) */}
-        <div className="flex-1 min-w-0 flex flex-col bg-white">
-            {/* 右侧 Header */}
-            <div className="h-16 shrink-0 border-b border-border/30 px-6 flex items-center justify-between bg-white">
-                <div className="min-w-0">
-                    <h2 className="text-lg font-semibold text-slate-800 truncate">
-                        {selectedDoc ? selectedDoc.name : "请选择文档"}
-                    </h2>
-                    {selectedDoc && (
-                        <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                           ID: {selectedDoc.id} 
-                           <span className="w-px h-3 bg-slate-300 mx-1"/>
-                           {selectedDoc.uploadDate}
-                        </p>
-                    )}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-slate-50/30">
+            {/* 右侧 Header - 更紧凑现代的设计 */}
+            <div className="h-14 shrink-0 border-b border-border/40 px-4 flex items-center justify-between bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+                <div className="min-w-0 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                        <FileText className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                        <h2 className="text-sm font-semibold text-slate-800 truncate">
+                            {selectedDoc ? selectedDoc.name : "未选择文档"}
+                        </h2>
+                        {selectedDoc && (
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                <span>ID: {selectedDoc.id}</span>
+                                <span className="w-px h-2 bg-slate-300"/>
+                                <span>{selectedDoc.uploadDate}</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-                {/* 如果需要可以放详情页专属的操作按钮 */}
-                <div className="flex gap-2">
+                
+                {/* 操作区 */}
+                <div className="flex items-center gap-2">
                     {selectedDoc && (
-                         <Button 
-                           variant="ghost" 
-                           size="sm" 
-                           onClick={() => handleViewDocument(selectedDoc)}
-                         >
-                            <Maximize2 className="w-4 h-4 mr-2" />
-                            全屏编辑
-                         </Button>
-                    )}
-                    {selectedDoc && (
-                         <Button 
-                           size="sm" 
-                           className="shadow-md bg-green-500 hover:bg-green-600 text-white transition-all" 
-                           onClick={() => selectedDoc && handleRunSmartParsing(selectedDoc)} 
-                           disabled={!selectedDoc}
-                         >
-                           {isSmartParsing ? (
-                             <>
-                               <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                               停止智能解析
-                             </>
-                           ) : (
-                             <>
-                               <Brain className="w-3.5 h-3.5 mr-2" />
-                               智能解析
-                             </>
-                           )}
-                         </Button>
-                    )}
-                    {selectedDoc && (
-                         <Button 
-                           size="sm" 
-                           className="shadow-md bg-primary hover:bg-primary/90 transition-all" 
-                           onClick={() => selectedDoc && handleRunParsing(selectedDoc)} 
-                           disabled={!selectedDoc}
-                         >
-                           {isParsing ? (
-                             <>
-                               <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                               停止解析
-                             </>
-                           ) : (
-                             <>
-                               <Zap className="w-3.5 h-3.5 mr-2" />
-                               开始解析
-                             </>
-                           )}
-                         </Button>
+                        <>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-8 px-2 text-slate-600 hover:bg-slate-100"
+                                onClick={() => handleViewDocument(selectedDoc)}
+                            >
+                                <Maximize2 className="w-3.5 h-3.5 mr-1.5" />
+                                全屏
+                            </Button>
+                            <div className="w-px h-4 bg-slate-200 mx-1" />
+                            <Button 
+                                size="sm" 
+                                className="h-8 bg-green-600 hover:bg-green-700 text-white shadow-sm" 
+                                onClick={() => selectedDoc && handleRunSmartParsing(selectedDoc)} 
+                                disabled={!selectedDoc}
+                            >
+                                {isSmartParsing ? (
+                                    <>
+                                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                        解析中
+                                    </>
+                                ) : (
+                                    <>
+                                        <Brain className="w-3.5 h-3.5 mr-1.5" />
+                                        智能解析
+                                    </>
+                                )}
+                            </Button>
+                            <Button 
+                                size="sm" 
+                                className="h-8 shadow-sm" 
+                                onClick={() => selectedDoc && handleRunParsing(selectedDoc)} 
+                                disabled={!selectedDoc}
+                            >
+                                {isParsing ? (
+                                    <>
+                                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                        停止
+                                    </>
+                                ) : (
+                                    <>
+                                        <Zap className="w-3.5 h-3.5 mr-1.5" />
+                                        快速解析
+                                    </>
+                                )}
+                            </Button>
+                        </>
                     )}
                 </div>
             </div>
@@ -456,30 +462,30 @@ export default function DocumentParsingInterface() {
             <div className="flex-1 min-h-0 overflow-hidden">
                 {selectedDoc ? (
                     <Tabs defaultValue="overview" className="h-full flex flex-col">
-                        <div className="px-6 border-b border-border/20 bg-slate-50/30">
+                        <div className="px-4 border-b border-border/40 bg-white/50">
                             <TabsList className="bg-transparent p-0 h-10 w-full justify-start gap-6">
                                 {['overview', 'content', 'export', 'storage'].map(tab => (
                                 <TabsTrigger 
                                     key={tab}
                                     value={tab} 
-                                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-0 pb-2 pt-2 text-sm font-medium text-slate-500 data-[state=active]:text-primary transition-all"
+                                    className="relative h-10 px-0 bg-transparent shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary rounded-none text-xs font-medium text-slate-500 hover:text-slate-700 transition-all"
                                 >
                                     {{
-                                    overview: '概览',
-                                    content: '内容分类',
-                                    export: '导出',
-                                    storage: '入库'
+                                    overview: '文档概览',
+                                    content: '内容识别',
+                                    export: '导出数据',
+                                    storage: '入库记录'
                                     }[tab]}
                                 </TabsTrigger>
                                 ))}
                             </TabsList>
                         </div>
                         
-                        {/* Tab 内容区：允许内部滚动 */}
-                        <div className="flex-1 overflow-hidden bg-slate-50/10">
+                        {/* Tab 内容区 */}
+                        <div className="flex-1 overflow-hidden bg-slate-50/30">
                             <ScrollArea className="h-full">
-                                <div className="p-6 max-w-5xl mx-auto">
-                                    <TabsContent value="overview" className="mt-0 space-y-4 focus-visible:ring-0">
+                                <div className="p-6 max-w-6xl mx-auto">
+                                    <TabsContent value="overview" className="mt-0 space-y-4 focus-visible:ring-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                         <OverviewTab 
                                             doc={selectedDoc} 
                                             isParsing={isSmartParsing || isParsing}
@@ -488,25 +494,38 @@ export default function DocumentParsingInterface() {
                                         />
                                     </TabsContent>
 
-                                    <TabsContent value="content" className="mt-0 focus-visible:ring-0">
+                                    <TabsContent value="content" className="mt-0 focus-visible:ring-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                         <ContentTab details={docDetails} loading={detailsLoading} />
                                     </TabsContent>
                                     
-                                    <TabsContent value="export" className="mt-0">
-                                        <div className="h-64 flex items-center justify-center text-slate-400 text-sm border-2 border-dashed rounded-xl">导出功能开发中...</div>
+                                    <TabsContent value="export" className="mt-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                                            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                                                <FileText className="w-6 h-6 text-slate-300" />
+                                            </div>
+                                            <p>导出功能正在开发中</p>
+                                        </div>
                                     </TabsContent>
 
-                                    <TabsContent value="storage" className="mt-0">
-                                        <div className="h-64 flex items-center justify-center text-slate-400 text-sm border-2 border-dashed rounded-xl">入库功能开发中...</div>
+                                    <TabsContent value="storage" className="mt-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                                            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                                                <Database className="w-6 h-6 text-slate-300" />
+                                            </div>
+                                            <p>入库功能正在开发中</p>
+                                        </div>
                                     </TabsContent>
                                 </div>
                             </ScrollArea>
                         </div>
                     </Tabs>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50/20">
-                        <LayoutGrid className="w-12 h-12 mb-4 opacity-20" />
-                        <p>请从左侧列表选择一个文档查看详情</p>
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50/30">
+                        <div className="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 shadow-sm">
+                            <LayoutGrid className="w-10 h-10 text-slate-300" />
+                        </div>
+                        <h3 className="text-sm font-medium text-slate-600 mb-1">未选择文档</h3>
+                        <p className="text-xs text-slate-400">请从左侧列表选择一个文档以查看详情</p>
                     </div>
                 )}
             </div>

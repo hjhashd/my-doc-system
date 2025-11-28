@@ -37,7 +37,10 @@ export async function POST(req: NextRequest) {
     // 2. 如果 metadata 中没有记录物理文件，扫描目录找到真实的 .docx 文件
     if (!physicalFile) {
       const files = fs.readdirSync(saveDir).filter(f => {
-        return f.endsWith('.docx') && !f.startsWith('~$') && f !== 'metadata.json'
+        return f.endsWith('.docx') && 
+               !f.startsWith('~$') && 
+               f !== 'metadata.json' &&
+               !f.includes('.origin.') // 排除带有"origin"后缀的文件
       })
       
       if (files.length > 0) {

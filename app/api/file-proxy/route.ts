@@ -5,6 +5,7 @@ import path from 'path';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const filePathParam = searchParams.get('path');
+  const filenameParam = searchParams.get('filename');
   
   if (!filePathParam) {
     return NextResponse.json({ error: 'Path parameter is required' }, { status: 400 });
@@ -63,6 +64,18 @@ export async function GET(request: NextRequest) {
     const ext = path.extname(fullPath).toLowerCase().slice(1);
     let contentType = 'application/octet-stream';
     
+    // 特殊处理JSON文件 - 直接返回JSON内容
+    if (ext === 'json') {
+      try {
+        const jsonContent = fs.readFileSync(fullPath, 'utf-8');
+        const jsonData = JSON.parse(jsonContent);
+        return NextResponse.json(jsonData);
+      } catch (error) {
+        console.error('Error parsing JSON file:', error);
+        return NextResponse.json({ error: 'Invalid JSON file' }, { status: 500 });
+      }
+    }
+    
     switch (ext) {
       case 'xlsx':
         contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -106,6 +119,14 @@ export async function GET(request: NextRequest) {
         } catch (e) {
             console.error('Error reading metadata:', e);
         }
+    }
+    if (filenameParam) {
+        const originalExt = path.extname(fullPath);
+        let safeName = path.basename(filenameParam);
+        if (!safeName.toLowerCase().endsWith(originalExt.toLowerCase())) {
+            safeName = `${safeName}${originalExt}`;
+        }
+        downloadName = safeName;
     }
     
     // 返回文件数据

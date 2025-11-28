@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Type, Grid3X3, FileImage, Filter, Copy, Eye, Download, ImageIcon, Layout, List as ListIcon, Grid } from "lucide-react"
+import { Type, Grid3X3, FileImage, Filter, Copy, Eye, Download, ImageIcon, Layout, List as ListIcon, Grid, ChevronLeft, ChevronRight } from "lucide-react"
 import { ContentDetailItem, DocumentDetails } from "@/types/document"
 import { ImagePreviewModal } from "@/components/document/image-preview-modal"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -19,13 +19,17 @@ interface ContentTabProps {
   onTableClick?: (tablePath: string) => void;
 }
 
-type ListStyle = 'modern' | 'professional' | 'compact';
+type ListStyle = 'professional' | 'compact';
 
 export function ContentTab({ details, loading, onTableClick }: ContentTabProps) {
   const [contentType, setContentType] = useState("all")
-  const [listStyle, setListStyle] = useState<ListStyle>("modern")
+  const [listStyle, setListStyle] = useState<ListStyle>("compact")
   const [selectedImage, setSelectedImage] = useState<ContentDetailItem | null>(null)
   const [isImageModalOpen, setIsImageModalOpen] = useState(false)
+  
+  // 统一分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 9 // 每页显示9个项目
 
   const handleImageClick = (imageItem: ContentDetailItem) => {
     setSelectedImage(imageItem)
@@ -37,12 +41,98 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
     setSelectedImage(null)
   }
 
+  // 获取筛选后的所有内容
+  const getFilteredContent = () => {
+    if (!details) return []
+    
+    let allItems: ContentDetailItem[] = []
+    
+    if (contentType === "all" || contentType === "text") {
+      allItems = [...allItems, ...details.text.map(item => ({ ...item, itemType: 'text' }))]
+    }
+    
+    if (contentType === "all" || contentType === "tables") {
+      allItems = [...allItems, ...details.tables.map(item => ({ ...item, itemType: 'table' }))]
+    }
+    
+    if (contentType === "all" || contentType === "images") {
+      allItems = [...allItems, ...details.images.map(item => ({ ...item, itemType: 'image' }))]
+    }
+    
+    return allItems
+  }
+
+  // 分页辅助函数
+  const getPaginatedItems = (items: ContentDetailItem[], page: number) => {
+    const startIndex = (page - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return items.slice(startIndex, endIndex)
+  }
+
+  const getTotalPages = (items: ContentDetailItem[]) => {
+    return Math.ceil(items.length / itemsPerPage)
+  }
+
+  // 分页组件
+  const PaginationControls = ({ currentPage, totalPages, onPageChange }: {
+    currentPage: number
+    totalPages: number
+    onPageChange: (page: number) => void
+  }) => {
+    if (totalPages <= 1) return null
+    
+    return (
+      <div className="flex items-center justify-center gap-2 mt-6">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="h-8 w-8 p-0"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        
+        <div className="flex items-center gap-1">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+            <Button
+              key={page}
+              variant={currentPage === page ? "default" : "outline"}
+              size="sm"
+              onClick={() => onPageChange(page)}
+              className="h-8 w-8 p-0 text-xs"
+            >
+              {page}
+            </Button>
+          ))}
+        </div>
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="h-8 w-8 p-0"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    )
+  }
+
+  // 当内容类型改变时重置分页
+  const handleContentTypeChange = (type: string) => {
+    setContentType(type)
+    setCurrentPage(1)
+  }
+
   if (loading) return <div className="p-8 text-center text-muted-foreground animate-pulse">正在提取文档内容...</div>
   if (!details) return <div className="p-8 text-center text-muted-foreground">暂无内容详情，请选择已完成的文档</div>
 
-  const showText = contentType === "all" || contentType === "text"
-  const showTables = contentType === "all" || contentType === "tables"
-  const showImages = contentType === "all" || contentType === "images"
+  // 获取筛选后的内容和分页数据
+  const filteredContent = getFilteredContent()
+  const paginatedContent = getPaginatedItems(filteredContent, currentPage)
+  const totalPages = getTotalPages(filteredContent)
 
   return (
     <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-500">
@@ -53,7 +143,7 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
             <Filter className="w-4 h-4 text-primary" />
             <Label className="text-sm font-medium">内容筛选</Label>
           </div>
-          <Select value={contentType} onValueChange={setContentType}>
+          <Select value={contentType} onValueChange={handleContentTypeChange}>
             <SelectTrigger className="w-40 bg-background h-9 text-sm border border-border/60">
               <SelectValue />
             </SelectTrigger>
@@ -69,72 +159,54 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
         <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
            <Label className="text-xs text-muted-foreground mr-2 hidden sm:inline-block">列表样式</Label>
            <ToggleGroup type="single" value={listStyle} onValueChange={(v) => v && setListStyle(v as ListStyle)}>
-              <ToggleGroupItem value="modern" aria-label="Modern" size="sm" className="h-8 w-8 p-0">
-                <Grid className="h-4 w-4" />
+              <ToggleGroupItem value="compact" aria-label="Compact" size="sm" className="h-8 w-8 p-0">
+                <ListIcon className="h-4 w-4" />
               </ToggleGroupItem>
               <ToggleGroupItem value="professional" aria-label="Professional" size="sm" className="h-8 w-8 p-0">
                 <Layout className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="compact" aria-label="Compact" size="sm" className="h-8 w-8 p-0">
-                <ListIcon className="h-4 w-4" />
               </ToggleGroupItem>
            </ToggleGroup>
         </div>
       </div>
 
-      <ScrollArea className="h-[550px] pr-4">
-        <div className={cn(
-          "space-y-6 pb-10",
-          listStyle === 'compact' && "space-y-4"
-        )}>
+      <ScrollArea className="h-full pr-4">
+        <div className="pb-10">
+          {/* 内容统计 */}
+          <div className="mb-4 text-sm text-muted-foreground">
+            共找到 {filteredContent.length} 项内容
+          </div>
           
-          {/* Text Section */}
-          {showText && details.text?.length > 0 && (
-            <Section title="文本内容" count={details.text.length} icon={Type} color="text-blue-500" listStyle={listStyle}>
+          {/* 混合内容网格 */}
+          {paginatedContent.length > 0 ? (
+            <>
               <div className={cn(
                 "grid gap-4",
-                listStyle === 'compact' ? "grid-cols-1" : "grid-cols-1"
-              )}>
-                {details.text.map((item) => (
-                  <ContentCard key={item.id} type="text" item={item} style={listStyle} />
+                  listStyle === 'compact' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : 
+                  "grid-cols-1 gap-4"
+                )}>
+                {paginatedContent.map((item) => (
+                  <ContentCard 
+                    key={`${item.itemType}-${item.id}`} 
+                    type={item.itemType as 'text' | 'table' | 'image'} 
+                    item={item} 
+                    onImageClick={handleImageClick} 
+                    onTableClick={onTableClick} 
+                    style={listStyle} 
+                  />
                 ))}
               </div>
-            </Section>
-          )}
-
-          {/* Tables Section */}
-          {showTables && details.tables?.length > 0 && (
-            <Section title="表格数据" count={details.tables.length} icon={Grid3X3} color="text-purple-500" listStyle={listStyle}>
-               <div className={cn(
-                "grid gap-4",
-                listStyle === 'compact' ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"
-              )}>
-                {details.tables.map((item) => (
-                  <ContentCard key={item.id} type="table" item={item} onTableClick={onTableClick} style={listStyle} />
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {/* Images Section */}
-          {showImages && details.images?.length > 0 && (
-            <Section title="图片内容" count={details.images.length} icon={FileImage} color="text-orange-500" listStyle={listStyle}>
-               <div className={cn(
-                "grid gap-4",
-                listStyle === 'compact' ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"
-              )}>
-                {details.images.map((item) => (
-                  <ContentCard key={item.id} type="image" item={item} onImageClick={handleImageClick} style={listStyle} />
-                ))}
-              </div>
-            </Section>
-          )}
-          
-          {/* Empty State */}
-          {(!details.text?.length && !details.tables?.length && !details.images?.length) && (
-             <div className="text-center py-10 text-muted-foreground">
-                该文档未提取到有效内容
-             </div>
+              
+              {/* 统一分页控件 */}
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </>
+          ) : (
+            <div className="text-center py-10 text-muted-foreground">
+              {contentType === "all" ? "该文档未提取到有效内容" : `未找到${contentType === "text" ? "文本" : contentType === "tables" ? "表格" : "图片"}内容`}
+            </div>
           )}
         </div>
       </ScrollArea>
@@ -167,12 +239,12 @@ function Section({ title, count, icon: Icon, color, children, listStyle }: any) 
 }
 
 // 辅助组件：通用内容卡片
-function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' }: { 
+function ContentCard({ type, item, onImageClick, onTableClick, style = 'compact' }: { 
   type: 'text'|'table'|'image', 
-  item: ContentDetailItem,
+  item: ContentDetailItem & { itemType?: string },
   onImageClick?: (item: ContentDetailItem) => void,
   onTableClick?: (tablePath: string) => void,
-  style?: ListStyle
+  style?: 'professional' | 'compact'
 }) {
   const getBadgeColor = () => {
     switch(type) {
@@ -185,14 +257,6 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
 
   // --- 样式配置 ---
   const styles = {
-    modern: {
-      card: "border border-border/80 hover:border-primary shadow-sm hover:shadow-md rounded-lg bg-card",
-      header: "mb-4 pb-2 border-b border-border/20",
-      content: "p-5",
-      textTitle: "text-lg font-bold mb-2",
-      textContent: "text-base leading-relaxed",
-      meta: "mt-3 pt-2 border-t border-border/10 text-xs text-muted-foreground flex justify-between"
-    },
     professional: {
       card: "border-l-4 border-y border-r border-gray-200 hover:border-gray-300 rounded-sm bg-slate-50/50 hover:bg-white transition-colors",
       header: "mb-2 flex items-center justify-between bg-white/50 p-2 rounded",
@@ -246,7 +310,7 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
             <Button variant="ghost" size="icon" className={cn("hover:bg-primary/5", style === 'compact' ? "h-6 w-6" : "h-8 w-8")}>
                {type === 'text' ? <Copy className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} /> : 
                 type === 'table' ? <Eye className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} /> : 
-                <Download className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} />}
+                <Eye className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} />}
             </Button>
           </div>
         </div>
@@ -255,11 +319,11 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
         {type === 'text' && (
            <div className="flex-1">
              {item.metadata?.heading_title && (
-                <h3 className={currentStyle.textTitle}>
+                <h3 className={cn(currentStyle.textTitle, "truncate")}>
                     {item.metadata.heading_title}
                 </h3>
              )}
-             <p className={cn(currentStyle.textContent, "whitespace-pre-wrap")}>
+             <p className={cn(currentStyle.textContent, "whitespace-pre-wrap", style !== 'compact' && "line-clamp-4")}>
                {item.content || "暂无文本内容"}
              </p>
              {style !== 'compact' && item.metadata && (
@@ -276,7 +340,7 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
         {type === 'table' && (
           <div 
             className={cn(
-              "rounded-md bg-muted/20 text-center text-foreground border-border/30 transition-colors",
+              "rounded-md bg-muted/20 text-center text-foreground border-border/30 transition-colors flex-1 flex flex-col",
               style === 'compact' ? "text-xs p-1 border" : "text-sm border p-3",
               item.metadata?.table_path ? 'cursor-pointer hover:bg-muted/40 hover:border-primary/50' : ''
             )}
@@ -287,8 +351,8 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
             }}
           >
              {item.content ? (
-               <div className="flex flex-col items-center gap-2">
-                 <span className={style === 'compact' ? 'line-clamp-2' : ''}>{item.content}</span>
+               <div className="flex flex-col items-center gap-2 flex-1">
+                 <span className={cn(style === 'compact' ? 'line-clamp-2' : 'line-clamp-3')}>{item.content}</span>
                  {item.metadata?.table_path && (
                    <span className={cn("text-primary flex items-center gap-1", style === 'compact' ? "text-[10px]" : "text-xs")}>
                      <Eye className={style === 'compact' ? "w-2.5 h-2.5" : "w-3 h-3"} />
@@ -296,14 +360,18 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
                    </span>
                  )}
                </div>
-             ) : '暂无表格数据'}
+             ) : (
+               <div className="flex-1 flex items-center justify-center">
+                 <span className="text-muted-foreground">暂无表格数据</span>
+               </div>
+             )}
           </div>
         )}
 
         {type === 'image' && (
            <div 
              className={cn(
-               "bg-muted/20 border border-dashed rounded-lg border-border/40 cursor-pointer transition-all hover:border-primary/50 flex items-center justify-center",
+               "bg-muted/20 border border-dashed rounded-lg border-border/40 cursor-pointer transition-all hover:border-primary/50 flex items-center justify-center flex-1",
                style === 'compact' ? "p-1 h-24" : "p-2",
                onImageClick ? 'hover:bg-muted/30' : ''
              )}
@@ -314,16 +382,16 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'modern' 
                  <img 
                    src={item.imageUrl} 
                    alt={`图片 ${item.id}`}
-                   className={cn("max-w-full object-contain rounded", style === 'compact' ? "max-h-20" : "max-h-48")}
+                   className={cn("max-w-full object-contain rounded", style === 'compact' ? "max-h-20" : "max-h-32")}
                  />
                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20 rounded">
                    <Eye className={cn("text-white", style === 'compact' ? "w-4 h-4" : "w-8 h-8")} />
                  </div>
                </div>
              ) : (
-               <div className={cn("text-center", style === 'compact' ? "p-2" : "p-8")}>
-                 <ImageIcon className={cn("mx-auto text-muted-foreground/60", style === 'compact' ? "w-4 h-4 mb-1" : "w-10 h-10 mb-3")} />
-                 {style !== 'compact' && <span className="text-sm text-muted-foreground uppercase tracking-wide font-medium">暂无图片数据</span>}
+               <div className={cn("text-center", style === 'compact' ? "p-2" : "p-4")}>
+                 <ImageIcon className={cn("mx-auto text-muted-foreground/60", style === 'compact' ? "w-4 h-4 mb-1" : "w-8 h-8 mb-2")} />
+                 {style !== 'compact' && <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">暂无图片数据</span>}
                </div>
              )}
            </div>

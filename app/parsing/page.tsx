@@ -12,7 +12,8 @@ import { DocumentList } from "@/components/document/document-list"
 import { OverviewTab } from "@/components/document/tabs/overview-tab"
 import { ContentTab } from "@/components/document/tabs/content-tab"
 import { ExportTab } from "@/components/document/tabs/export-tab"
-import { Document, DocumentDetails } from "@/types/document"
+import { StorageTab } from "@/components/document/tabs/storage-tab"
+import { Document, DocumentDetails, DocumentStatistics } from "@/types/document"
 
 export default function DocumentParsingInterface() {
   const searchParams = useSearchParams()
@@ -27,6 +28,8 @@ export default function DocumentParsingInterface() {
   const [listError, setListError] = useState<string | null>(null)
   const [docDetails, setDocDetails] = useState<DocumentDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false)
+  const [docStatistics, setDocStatistics] = useState<DocumentStatistics | null>(null)
+  const [statisticsLoading, setStatisticsLoading] = useState<boolean>(false)
   
   // === 智能解析状态 ===
   const [isSmartParsing, setIsSmartParsing] = useState(false)
@@ -48,6 +51,21 @@ export default function DocumentParsingInterface() {
     }
   }, [])
 
+  // 监听 selectedDoc 变化，获取统计信息
+  useEffect(() => {
+    if (selectedDoc) {
+      fetchStatistics(selectedDoc)
+    }
+  }, [selectedDoc])
+  
+  // 监听解析状态变化，解析完成后重新获取统计信息
+  useEffect(() => {
+    // 如果解析刚刚完成 (进度变回0或停止解析)，再获取一次最新数据
+    if (!isParsing && selectedDoc && parsingProgress === 0) {
+      fetchStatistics(selectedDoc)
+    }
+  }, [isParsing, selectedDoc, parsingProgress])
+
   // 1. 获取文档列表
   const fetchDocuments = useCallback(async () => {
     try {
@@ -61,11 +79,11 @@ export default function DocumentParsingInterface() {
       
       if (res && res.ok && Array.isArray(res.data)) {
         setDocuments(res.data)
-        if (!selectedDoc && res.data.length > 0) {
-          // 如果当前没有选中项，默认选中第一个
-          // 注意：如果想保持用户之前的选择，可以在这里加逻辑判断
-          setSelectedDoc(res.data[0])
-        }
+        // 使用函数式更新来避免依赖 selectedDoc
+        setSelectedDoc(prev => {
+            if (!prev && res.data.length > 0) return res.data[0];
+            return prev;
+        });
       } else {
         setDocuments([])
         setListError(res?.message || '无法加载文档列表')
@@ -76,7 +94,7 @@ export default function DocumentParsingInterface() {
     } finally {
       setListLoading(false)
     }
-  }, [searchParams, selectedDoc])
+  }, [searchParams]) // 移除 selectedDoc 依赖
 
   // 2. 获取文档详情 (模拟或实际请求)
   const fetchDocumentDetails = useCallback(async (docId: string) => {
@@ -93,6 +111,33 @@ export default function DocumentParsingInterface() {
       setDetailsLoading(false);
     }
   }, []);
+
+  // 2.1 获取文档统计信息
+  const fetchStatistics = async (doc: Document) => {
+    if (!doc) return;
+    
+    try {
+      setStatisticsLoading(true);
+      setDocStatistics(null);
+      
+      const res = await http.post('/api/pipeline/statistics', {
+        agentUserId: searchParams.get('agentUserId') || '123',
+        taskId: doc.id,
+        fileName: doc.name // 或者 doc.physicalName
+      });
+      
+      if (res.ok && res.statistics) {
+        console.log("获取到的概览数据:", res.statistics);
+        setDocStatistics(res.statistics);
+      } else {
+        console.error("获取统计信息失败:", res.message);
+      }
+    } catch (e) {
+      console.error("获取概览失败", e);
+    } finally {
+      setStatisticsLoading(false);
+    }
+  };
 
   // 3. 列表选择逻辑
   const handleToggleSelect = (id: string) => {
@@ -194,7 +239,9 @@ export default function DocumentParsingInterface() {
                       if (parsedData && Array.isArray(parsedData)) {
                         // 处理文本数据
                         convertedDetails.text = parsedData.filter((item: any) => 
-                        item.content && !item.content.includes('🖼️ 点击查看高清原图') && !item.content.startsWith('📊 点击编辑关联表格')
+                        item.content && 
+                        !item.content.includes('🖼️ 点击查看高清原图') && !item.content.startsWith('📊 点击编辑关联表格') &&
+                        !item.content.includes('🖼️ 点击查看图片') && !item.content.startsWith('📊 点击编辑表格')
                       ).map((item: any, index: number) => ({
                           id: item.block_id || `text-${index}`,
                           type: 'text',
@@ -214,80 +261,107 @@ export default function DocumentParsingInterface() {
 
                         // 处理表格数据
                         convertedDetails.tables = parsedData.filter((item: any) => 
-                          item.content && item.content.startsWith('📊 点击编辑关联表格')
+                          item.content && (item.content.startsWith('📊 点击编辑关联表格') || item.content.startsWith('📊 点击编辑表格'))
                         ).map((item: any, index: number) => {
                           // 提取表格信息
-                          // 示例格式: "📊 点击编辑关联表格 1 (Excel) \n[#PDF-LOC:1#]"
-                          const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
-                          const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
                           
-                          // 提取PDF页码位置信息
-                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
-                          // 注意：文件系统通常使用 0起始索引，而 OCR 标记通常是 1起始页码
-                          // 所以我们需要将 OCR 页码减 1 来匹配文件名
-                          // 如果没有找到页码，默认为 '0'
-                          const pdfLoc = pdfLocMatch ? (parseInt(pdfLocMatch[1]) - 1).toString() : '0';
-
-                          // 假设表格文件名格式为 XA_certificate_0_table_1.xlsx (baseName_pageIndex_table_tableIndex.xlsx)
-                          // 且位于 table 子目录中
-                          const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
-                          const tablePath = `table/${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
-                          
-                          // 构建相对路径 key (用于匹配 metadata)
-                          // 注意：这里需要根据实际保存路径结构构建 key
-                          // 假设结构: /save/{agentUserId}/{taskId}/table/xxx.xlsx
-                          // 我们只需要 table/xxx.xlsx 部分作为相对 key，或者完整相对路径
-                          // 这里我们使用完整相对路径作为 key: /save/{agentUserId}/{taskId}/{tablePath}
+                          let tablePath = '';
+                          let displayName = item.heading_title || `表格 ${index + 1}`;
+                          let relativeKey = '';
                           const agentUserId = searchParams.get('agentUserId') || '123';
-                          const relativeKey = `/save/${agentUserId}/${doc.id}/${tablePath}`;
                           
-                          // 检查是否有自定义名称
-                      let displayName = item.heading_title || `表格 ${tableId}`;
-                      // 不再使用fileNames映射，直接使用原始名称
-                      // if (fileNames && fileNames[relativeKey]) {
-                      //   displayName = fileNames[relativeKey].displayName;
-                      // } else {
-                      //   // 如果没有记录，初始化一条默认记录 (可选)
-                      //   // 只有在用户点击时才真正创建可能更好，或者在这里静默创建
-                      //   // 这里我们只在前端显示默认值，不写入后端
-                      // }
+                          // 兼容新旧两种格式
+                          if (item.content.includes('{{#T#:')) {
+                              // 新格式: 📊 点击编辑表格 (XA_certificate_0_table_1.xlsx){{#T#:XA_certificate_0_table_1.xlsx}}
+                              const match = item.content.match(/\{\{#T#:(.*?)\}\}/);
+                              if (match && match[1]) {
+                                  const fileName = match[1];
+                                  tablePath = `table/${fileName}`;
+                                  // 如果有标题，优先使用标题，否则使用文件名
+                                  if (!displayName || displayName.startsWith('表格')) {
+                                      displayName = fileName;
+                                  }
+                              }
+                          } else {
+                              // 旧格式: 📊 点击编辑关联表格 1 (Excel) \n[#PDF-LOC:1#]
+                              const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
+                              const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
+                              
+                              // 提取PDF页码位置信息
+                              const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                              const pdfLoc = pdfLocMatch ? (parseInt(pdfLocMatch[1]) - 1).toString() : '0';
 
-                      return {
-                        id: item.block_id || `table-${index}`,
-                        type: 'table',
-                        content: displayName, // 使用自定义名称
-                        page: 1,
-                        confidence: 0.9,
-                        metadata: {
-                          heading_level: item.heading_level,
-                          heading_title: item.heading_title,
-                          heading_meta: item.heading_meta,
-                          char_start: item.char_start,
-                          char_end: item.char_end,
-                          line_start: item.line_start,
-                          line_end: item.line_end,
-                          table_path: tablePath, // 存储表格路径
-                          original_name: item.heading_title || `表格 ${tableId}`, // 使用heading_title作为原始名称
-                          relative_key: relativeKey // 保存 key 用于更新
-                        }
-                      };
+                              const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
+                              tablePath = `table/${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
+                          }
+                          
+                          // 构建相对路径 key
+                          relativeKey = `/save/${agentUserId}/${doc.id}/${tablePath}`;
+                          
+                          // 去掉标题前面的编号部分（如"1.1."）
+                          if (displayName && displayName.match(/^\d+\.\d+\.?\s*/)) {
+                            displayName = displayName.replace(/^\d+\.\d+\.?\s*/, '');
+                          }
+
+                          return {
+                            id: item.block_id || `table-${index}`,
+                            type: 'table',
+                            content: displayName, // 使用自定义名称
+                            page: 1,
+                            confidence: 0.9,
+                            metadata: {
+                              heading_level: item.heading_level,
+                              heading_title: item.heading_title,
+                              heading_meta: item.heading_meta,
+                              char_start: item.char_start,
+                              char_end: item.char_end,
+                              line_start: item.line_start,
+                              line_end: item.line_end,
+                              table_path: tablePath, // 存储表格路径
+                              original_name: item.heading_title || displayName, // 使用heading_title作为原始名称
+                              relative_key: relativeKey // 保存 key 用于更新
+                            }
+                          };
                         });
                         
-                        // 处理图片数据 - 从content中提取PDF位置信息并匹配图片文件
+                        // 处理图片数据
                         convertedDetails.images = parsedData.filter((item: any) => 
-                          item.content && item.content.includes('🖼️ 点击查看高清原图')
+                          item.content && (item.content.includes('🖼️ 点击查看高清原图') || item.content.includes('🖼️ 点击查看图片'))
                         ).map((item: any, index: number) => {
-                          // 从content中提取PDF位置信息
-                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
-                          const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
+                          let imageUrl = '';
+                          let displayName = item.heading_title || `图片 ${index + 1}`;
+                          let pdfLoc = '0';
                           
-                          // 构建图片URL - 使用图片代理API
-                           const imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/123/4/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                          // 兼容新旧两种格式
+                          if (item.content.includes('{{#I#:')) {
+                              // 新格式: 🖼️ 点击查看图片 (XA_certificate_1_layout_det_res_1.png){{#I#:XA_certificate_1_layout_det_res_1.png}}
+                              const match = item.content.match(/\{\{#I#:(.*?)\}\}/);
+                              if (match && match[1]) {
+                                  const fileName = match[1];
+                                  imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${doc.id}/img/${fileName}`;
+                                  
+                                  if (!displayName || displayName.startsWith('图片')) {
+                                      displayName = fileName;
+                                  }
+                              }
+                          } else {
+                              // 旧格式: 🖼️ 点击查看高清原图 (Image) \n[#PDF-LOC:2#]
+                              // 从content中提取PDF位置信息
+                              const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                              pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
+                              
+                              // 构建图片URL - 使用图片代理API
+                              imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${doc.id}/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                              
+                              if (!displayName) {
+                                  displayName = `图片 ${pdfLoc}`;
+                              }
+                          }
                           
                           return {
                             id: item.block_id || `image-${index}`,
                             type: 'image',
-                            content: item.heading_title || `图片 ${pdfLoc}`,
+                            content: displayName,
                             page: 1, // 默认页码
                             confidence: 0.9, // 默认置信度
                             imageUrl: imageUrl,
@@ -421,28 +495,49 @@ export default function DocumentParsingInterface() {
                     convertedDetails.tables = parsedData.filter((item: any) => 
                       item.content && item.content.startsWith('📊 点击编辑关联表格')
                     ).map((item: any, index: number) => {
-                      // 提取表格信息
-                      const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
-                      const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
-                      
-                      // 提取PDF页码位置信息
-                      const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
-                      const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : '0';
+                      // 兼容新旧两种格式
+                      if (item.content.includes('{{#T#:')) {
+                          // 新格式: 📊 点击编辑表格 (XA_certificate_0_table_1.xlsx){{#T#:XA_certificate_0_table_1.xlsx}}
+                          const match = item.content.match(/\{\{#T#:(.*?)\}\}/);
+                          if (match && match[1]) {
+                              const fileName = match[1];
+                              // 注意：普通解析的表格通常在 table 子目录下，但新格式可能不同
+                              // 假设新格式也遵循 table/ 目录结构，或者根据实际情况调整
+                              // 如果 fileName 已经包含了路径分隔符，则不加 table/
+                              if (fileName.includes('/')) {
+                                  fullTablePath = fileName;
+                              } else {
+                                  fullTablePath = `table/${fileName}`;
+                              }
+                              
+                              // 如果有标题，优先使用标题，否则使用文件名
+                              if (!displayName || displayName.startsWith('表格')) {
+                                  displayName = fileName;
+                              }
+                          }
+                      } else {
+                          // 旧格式: 📊 点击编辑关联表格 1 (Excel) \n[#PDF-LOC:1#]
+                          const tableMatch = item.content.match(/点击编辑关联表格\s*(\d+)/);
+                          const tableId = tableMatch ? tableMatch[1] : (index + 1).toString();
+                          
+                          // 提取PDF页码位置信息
+                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                          const pdfLoc = pdfLocMatch ? (parseInt(pdfLocMatch[1]) - 1).toString() : '0';
 
-                      const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
-                      const tablePath = `${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
-                      
+                          const baseName = doc.physicalName ? doc.physicalName.replace('_res.docx', '').replace('.docx', '') : doc.name.replace('.docx', '');
+                          const tablePath = `${baseName}_${pdfLoc}_table_${tableId}.xlsx`;
+                          fullTablePath = `table/${tablePath}`;
+                      }
+
                       // 构建相对路径 key (用于匹配 metadata)
                       const agentUserId = searchParams.get('agentUserId') || '123';
-                      // 普通解析可能没有 table/ 前缀，这里假设有
-                      const fullTablePath = `table/${tablePath}`; 
                       const relativeKey = `/save/${agentUserId}/${doc.id}/${fullTablePath}`;
                       
-                      // 检查是否有自定义名称
-                      let displayName = item.heading_title || `表格 ${tableId}`;
-                      if (fileNames && fileNames[relativeKey]) {
-                         displayName = fileNames[relativeKey].displayName;
+                      // 去掉标题前面的编号部分（如"1.1."）
+                      if (displayName && displayName.match(/^\d+\.\d+\.?\s*/)) {
+                        displayName = displayName.replace(/^\d+\.\d+\.?\s*/, '');
                       }
+                      
 
                       return {
                         id: item.block_id || `table-${index}`,
@@ -459,7 +554,7 @@ export default function DocumentParsingInterface() {
                           line_start: item.line_start,
                           line_end: item.line_end,
                           table_path: fullTablePath,
-                          original_name: item.heading_title || `表格 ${tableId}`, // 使用heading_title作为原始名称
+                          original_name: item.heading_title || displayName, // 使用heading_title作为原始名称
                           relative_key: relativeKey
                         }
                       };
@@ -467,19 +562,43 @@ export default function DocumentParsingInterface() {
                     
                     // 处理图片数据 - 从content中提取PDF位置信息并匹配图片文件
                     convertedDetails.images = parsedData.filter((item: any) => 
-                      item.content && item.content.includes('🖼️ 点击查看高清原图')
+                      item.content && (item.content.includes('🖼️ 点击查看高清原图') || item.content.includes('🖼️ 点击查看图片'))
                     ).map((item: any, index: number) => {
-                      // 从content中提取PDF位置信息
-                      const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
-                      const pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
-                      
-                      // 构建图片URL - 使用图片代理API
-                      const imageUrl = `/api/image-proxy?path=/public/save/123/4/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                      let imageUrl = '';
+                      let displayName = item.heading_title || `图片 ${index + 1}`;
+                      let pdfLoc = '0';
+                      const agentUserId = searchParams.get('agentUserId') || '123';
+
+                      // 兼容新旧两种格式
+                      if (item.content.includes('{{#I#:')) {
+                          // 新格式: 🖼️ 点击查看图片 (XA_certificate_1_layout_det_res_1.png){{#I#:XA_certificate_1_layout_det_res_1.png}}
+                          const match = item.content.match(/\{\{#I#:(.*?)\}\}/);
+                          if (match && match[1]) {
+                              const fileName = match[1];
+                              imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${doc.id}/img/${fileName}`;
+                              
+                              if (!displayName || displayName.startsWith('图片')) {
+                                  displayName = fileName;
+                              }
+                          }
+                      } else {
+                          // 旧格式: 🖼️ 点击查看高清原图 (Image) \n[#PDF-LOC:2#]
+                          // 从content中提取PDF位置信息
+                          const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                          pdfLoc = pdfLocMatch ? pdfLocMatch[1] : (index + 1).toString();
+                          
+                          // 构建图片URL - 使用图片代理API
+                          imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${doc.id}/img/XA_certificate_${pdfLoc}_layout_det_res_1.png`;
+                          
+                          if (!displayName) {
+                              displayName = `图片 ${pdfLoc}`;
+                          }
+                      }
                       
                       return {
                         id: item.block_id || `image-${index}`,
                         type: 'image',
-                        content: item.heading_title || `图片 ${pdfLoc}`,
+                        content: displayName,
                         page: 1, // 默认页码
                         confidence: 0.9, // 默认置信度
                         imageUrl: imageUrl,
@@ -630,7 +749,7 @@ export default function DocumentParsingInterface() {
 
   return (
     // UI：保持 Page.tsx 原有的风格
-    <div className="p-4 md:p-6 space-y-4 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
+    <div className="p-4 md:p-6 space-y-4 min-h-[calc(100vh-64px)] flex flex-col">
       
       {/* Header: 玻璃拟态效果 */}
       <div className="flex items-center justify-between shrink-0 bg-white/60 backdrop-blur-md p-4 rounded-xl border border-white/50 shadow-sm">
@@ -707,26 +826,28 @@ export default function DocumentParsingInterface() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0 overflow-hidden">
         
-        {/* Left: Queue */}
-        <DocumentList 
-          documents={documents}
-          selectedDoc={selectedDoc}
-          loading={listLoading}
-          error={listError}
-          onSelect={setSelectedDoc}
-          onRefresh={fetchDocuments}
-          selectedIds={selectedIds}
-          onToggleSelect={handleToggleSelect}
-          onToggleAll={handleToggleAll}
-          onViewDocument={handleViewDocument}
-          onSmartParse={handleRunSmartParsing}
-          isSmartParsing={isSmartParsing}
-        />
+        {/* Left: Queue - Responsive Width */}
+        <div className="w-full lg:w-[320px] xl:w-[360px] flex flex-col shrink-0 min-h-[400px] lg:min-h-0">
+          <DocumentList 
+            documents={documents}
+            selectedDoc={selectedDoc}
+            loading={listLoading}
+            error={listError}
+            onSelect={setSelectedDoc}
+            onRefresh={fetchDocuments}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleAll={handleToggleAll}
+            onViewDocument={handleViewDocument}
+            onSmartParse={handleRunSmartParsing}
+            isSmartParsing={isSmartParsing}
+          />
+        </div>
 
-        {/* Right: Details Tabs */}
-        <Card className="lg:col-span-2 shadow-sm border border-border/60 flex flex-col h-full overflow-hidden bg-white/80 backdrop-blur-sm">
+        {/* Right: Details Tabs - Flexible Width */}
+        <Card className="flex-1 shadow-sm border border-border/60 flex flex-col min-h-[600px] lg:min-h-0 bg-white/80 backdrop-blur-sm overflow-hidden">
           <CardHeader className="pb-0 shrink-0 border-b border-border/40 bg-muted/20 pt-4 px-6">
             <div className="flex items-center justify-between mb-4">
                <div>
@@ -758,17 +879,19 @@ export default function DocumentParsingInterface() {
                 ))}
               </TabsList>
               
-              <div className="flex-1 min-h-0 overflow-hidden bg-transparent pt-4"> 
-                <TabsContent value="overview" className="mt-0 h-full overflow-auto pr-2 pb-4">
+              <div className="flex-1 bg-transparent pt-4"> 
+                <TabsContent value="overview" className="mt-0 pr-2 pb-4">
                   <OverviewTab 
                     doc={selectedDoc} 
                     isParsing={isParsing || isSmartParsing}
                     parsingProgress={isParsing ? parsingProgress : smartParsingProgress}
                     parsingStatusText={isParsing ? parsingStatusText : smartParsingStatusText}
+                    statistics={docStatistics}
+                    statisticsLoading={statisticsLoading}
                   />
                 </TabsContent>
 
-                <TabsContent value="content" className="mt-0 h-full overflow-hidden">
+                <TabsContent value="content" className="mt-0">
                   <ContentTab 
                     details={docDetails} 
                     loading={detailsLoading} 
@@ -805,7 +928,7 @@ export default function DocumentParsingInterface() {
                   />
                 </TabsContent>
                 
-                <TabsContent value="export" className="mt-0 h-full overflow-auto pr-2 pb-4">
+                <TabsContent value="export" className="mt-0 pr-2 pb-4">
                   <ExportTab 
                     doc={selectedDoc}
                     details={docDetails}
@@ -813,8 +936,8 @@ export default function DocumentParsingInterface() {
                   />
                 </TabsContent>
 
-                <TabsContent value="storage" className="mt-0 h-full flex items-center justify-center">
-                   <div className="text-center text-muted-foreground text-sm">入库功能开发中...</div>
+                <TabsContent value="storage" className="mt-0 h-full overflow-auto pr-2 pb-4">
+                    <StorageTab doc={selectedDoc} />
                 </TabsContent>
               </div>
             </Tabs>

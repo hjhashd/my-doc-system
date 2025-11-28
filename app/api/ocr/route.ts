@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import http from '@/lib/http'
+import { sendStatusUpdate, sendProgressUpdate, sendCompletionNotification, sendErrorNotification } from '../sse/route'
 
 export const runtime = 'nodejs'
 
@@ -105,10 +106,19 @@ export async function POST(req: NextRequest) {
         output_file_path: '/home/cqj/my-doc-system-uploads/save'  // 使用指定的输出目录
       }
       
+      // 通过SSE发送状态更新：任务已开始
+      sendStatusUpdate(taskId, {
+        status: OCRStatus.PROCESSING,
+        message: 'OCR任务已提交，正在处理中'
+      })
+      
       // 调用Python后端服务
       const response = await http.post(`${pythonServiceUrl}/generate_report/`, ocrRequest)
       
       if (response && response.report_generation_status === 0) {
+        // 通过SSE发送状态更新：任务已接受
+        sendProgressUpdate(taskId, 10, 'OCR任务已提交，正在处理中')
+        
         return NextResponse.json({ 
           ok: true, 
           taskId,
@@ -116,12 +126,22 @@ export async function POST(req: NextRequest) {
           message: 'OCR任务已提交，正在处理中'
         })
       } else {
+        // 通过SSE发送错误通知
+        sendErrorNotification(taskId, {
+          message: `OCR处理失败: ${response?.report_generation_condition || '未知错误'}`
+        })
+        
         return NextResponse.json({ 
           ok: false, 
           message: `OCR处理失败: ${response?.report_generation_condition || '未知错误'}` 
         }, { status: 500 })
       }
     } catch (error) {
+      // 通过SSE发送错误通知
+      sendErrorNotification(taskId, {
+        message: `OCR处理失败: ${error}`
+      })
+      
       return NextResponse.json({ 
         ok: false, 
         message: `OCR处理失败: ${error}` 
@@ -244,6 +264,27 @@ export async function GET(req: NextRequest) {
         }
       }
       
+      // 根据状态发送SSE通知
+      if (status === OCRStatus.COMPLETED) {
+        // 通过SSE发送完成通知
+        sendCompletionNotification(taskId, {
+          fileName,
+          agentUserId,
+          inputFilePath,
+          outputFilePath,
+          fileExists,
+          fileSize
+        })
+      } else if (status === OCRStatus.PROCESSING) {
+        // 通过SSE发送进度更新
+        sendProgressUpdate(taskId, response.progress || 0, response.report_generation_condition)
+      } else if (status === OCRStatus.FAILED) {
+        // 通过SSE发送错误通知
+        sendErrorNotification(taskId, {
+          message: response.report_generation_condition
+        })
+      }
+      
       // 返回任务状态和文件信息
       return NextResponse.json({
         ok: true,
@@ -260,6 +301,12 @@ export async function GET(req: NextRequest) {
       })
     } catch (error) {
       console.error('无法从Python服务获取状态:', error)
+      
+      // 通过SSE发送错误通知
+      sendErrorNotification(taskId, {
+        message: `无法获取任务状态: ${error}`
+      })
+      
       return NextResponse.json({ 
         ok: false, 
         message: `无法获取任务状态: ${error}` 

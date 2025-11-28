@@ -4,6 +4,17 @@ export interface DocumentElementCounts {
   images: number;
 }
 
+// 文档统计信息
+export interface DocumentStatistics {
+  text_blocks_count: number;
+  tables_count: number;
+  images_count: number;
+  total_pages: number;
+  file_size_kb: number;
+  // 可以根据实际后端返回扩展更多字段
+  [key: string]: any;
+}
+
 export interface Document {
   id: string;
   name: string;
@@ -14,6 +25,7 @@ export interface Document {
   size: string;
   pages: number;
   elements: DocumentElementCounts;
+  statistics?: DocumentStatistics; // 添加可选的统计信息字段
 }
 
 // 详情内容的类型定义 (用于替换原来的 mockContentDetails)

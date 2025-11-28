@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证格式
-    const validFormats = ['word', 'excel', 'json', 'markdown']
+    const validFormats = ['word', 'excel', 'json', 'markdown', 'image']
     if (!validFormats.includes(format)) {
       return NextResponse.json(
         { ok: false, message: '不支持的导出格式' },
@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 创建导出目录
-    const exportDir = path.join(process.cwd(), 'uploads', 'exports', agentUserId, taskId)
+    const exportBase = '/home/cqj/my-doc-system-uploads'
+    const exportDir = path.join(exportBase, 'exports', agentUserId, taskId)
     if (!fs.existsSync(exportDir)) {
       fs.mkdirSync(exportDir, { recursive: true })
     }
@@ -70,9 +70,53 @@ export async function POST(request: NextRequest) {
         break
 
       case 'excel':
-        fileContent = generateSimpleExcel(content, fileName)
-        fs.writeFileSync(exportFilePath, fileContent, 'utf8')
-        downloadUrl = `/api/file-proxy?path=/my-doc-system-uploads/exports/${agentUserId}/${taskId}/${exportFileName}`
+        {
+          const selectedTable = Array.isArray(content.tables) && content.tables.length > 0 ? content.tables[0] : null
+          const tablePath = selectedTable && selectedTable.metadata && selectedTable.metadata.table_path ? selectedTable.metadata.table_path : ''
+          if (tablePath) {
+            const safeTablePath = tablePath.startsWith('/') ? tablePath.slice(1) : tablePath
+            const customName = `${baseName}.xlsx`
+            downloadUrl = `/api/file-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${taskId}/${safeTablePath}&filename=${encodeURIComponent(customName)}`
+          } else {
+            fileContent = generateSimpleExcel(content, fileName)
+            fs.writeFileSync(exportFilePath, fileContent, 'utf8')
+            downloadUrl = `/api/file-proxy?path=/my-doc-system-uploads/exports/${agentUserId}/${taskId}/${exportFileName}`
+          }
+        }
+        break
+
+      case 'image':
+        {
+          const selectedImage = Array.isArray(content.images) && content.images.length > 0 ? content.images[0] : null
+          let imagePath = ''
+          if (selectedImage && selectedImage.imageUrl) {
+            try {
+              const url = new URL(selectedImage.imageUrl, 'http://localhost')
+              const rawPath = url.searchParams.get('path') || ''
+              const isMyUploads = rawPath.startsWith('/my-doc-system-uploads/')
+              const extMatch = rawPath.match(/\.(png|jpg|jpeg)$/i)
+              const ext = extMatch ? extMatch[1].toLowerCase() : 'png'
+              const customName = `${baseName}.${ext}`
+              if (isMyUploads) {
+                downloadUrl = `/api/file-proxy?path=${rawPath}&filename=${encodeURIComponent(customName)}`
+              } else {
+                // 非 /my-doc-system-uploads 路径的兼容（例如 /public/save），直接透传
+                const safePath = rawPath || `/public/save/${agentUserId}/${taskId}/img/${baseName}.png`
+                downloadUrl = `/api/file-proxy?path=${safePath}&filename=${encodeURIComponent(customName)}`
+              }
+            } catch {
+              // 回退为导出目录占位文件（避免失败）
+              fileContent = ''
+              fs.writeFileSync(exportFilePath, fileContent, 'utf8')
+              downloadUrl = `/api/file-proxy?path=/my-doc-system-uploads/exports/${agentUserId}/${taskId}/${exportFileName}`
+            }
+          } else {
+            // 无图片路径时的回退
+            fileContent = ''
+            fs.writeFileSync(exportFilePath, fileContent, 'utf8')
+            downloadUrl = `/api/file-proxy?path=/my-doc-system-uploads/exports/${agentUserId}/${taskId}/${exportFileName}`
+          }
+        }
         break
 
       default:

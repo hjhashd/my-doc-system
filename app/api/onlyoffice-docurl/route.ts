@@ -32,9 +32,9 @@ function findActualFile(basePath: string): { physicalFile: string | null, displa
     // === 2. 降级策略：扫描目录 ===
     const files = readdirSync(basePath)
     
-    // 查找文档文件（排除目录和临时文件）
+    // 查找文档文件（排除目录、临时文件和origin后缀文件）
     const docFiles = files.filter(file => {
-      if (file.startsWith('~$') || file === 'metadata.json') return false
+      if (file.startsWith('~$') || file === 'metadata.json' || file.includes('.origin.')) return false
       const filePath = join(basePath, file)
       try {
         const stat = statSync(filePath)

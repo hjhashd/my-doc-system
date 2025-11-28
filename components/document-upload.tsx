@@ -66,6 +66,7 @@ export function DocumentUpload() {
   const [processingMessage, setProcessingMessage] = useState("")
   const [processingProgress, setProcessingProgress] = useState(0)
   const [useLargeModel, setUseLargeModel] = useState(false)
+  const [sseConnection, setSseConnection] = useState<EventSource | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {

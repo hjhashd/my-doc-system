@@ -46,7 +46,11 @@ export async function GET(req: NextRequest) {
       // 2. 降级：扫描物理文件
       if (!isValid) {
         try {
-          const files = fs.readdirSync(taskPath).filter(f => f.endsWith('.docx') && !f.startsWith('~$'))
+          const files = fs.readdirSync(taskPath).filter(f => 
+            f.endsWith('.docx') && 
+            !f.startsWith('~$') &&
+            !f.includes('.origin.') // 排除带有"origin"后缀的文件
+          )
           if (files.length > 0) {
             fileName = files[0]
             physicalFileName = files[0] // 同时保存为物理文件名

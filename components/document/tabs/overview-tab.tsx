@@ -3,26 +3,50 @@
 import React from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Type, Grid3X3, FileImage, CheckCircle, Clock, AlertCircle } from "lucide-react"
-import { Document } from "@/types/document"
+import { Type, Grid3X3, FileImage, CheckCircle, Clock, AlertCircle, Loader2 } from "lucide-react"
+import { Document, DocumentStatistics } from "@/types/document"
 
 interface OverviewTabProps {
   doc: Document | null;
   isParsing?: boolean;
   parsingProgress?: number;
   parsingStatusText?: string;
+  statistics?: DocumentStatistics | null;
+  statisticsLoading?: boolean;
 }
 
-export function OverviewTab({ doc, isParsing = false, parsingProgress = 0, parsingStatusText = "" }: OverviewTabProps) {
+export function OverviewTab({ 
+  doc, 
+  isParsing = false, 
+  parsingProgress = 0, 
+  parsingStatusText = "",
+  statistics = null,
+  statisticsLoading = false
+}: OverviewTabProps) {
   if (!doc) return <div className="text-center py-10 text-muted-foreground">请先选择一个文档</div>
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* 核心指标卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
-        <StatsCard icon={Type} color="blue" label="文本块" value={doc.elements.text} />
-        <StatsCard icon={Grid3X3} color="purple" label="表格" value={doc.elements.tables} />
-        <StatsCard icon={FileImage} color="orange" label="图片" value={doc.elements.images} />
+        {statisticsLoading ? (
+          <div className="col-span-2 md:col-span-3 flex justify-center items-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-primary mr-2" />
+            <span className="text-sm text-muted-foreground">加载统计信息中...</span>
+          </div>
+        ) : statistics ? (
+          <>
+            <StatsCard icon={Type} color="blue" label="文本块" value={statistics.text_blocks_count} />
+            <StatsCard icon={Grid3X3} color="purple" label="表格" value={statistics.tables_count} />
+            <StatsCard icon={FileImage} color="orange" label="图片" value={statistics.images_count} />
+          </>
+        ) : (
+          <>
+            <StatsCard icon={Type} color="blue" label="文本块" value={doc.elements.text} />
+            <StatsCard icon={Grid3X3} color="purple" label="表格" value={doc.elements.tables} />
+            <StatsCard icon={FileImage} color="orange" label="图片" value={doc.elements.images} />
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -31,8 +55,8 @@ export function OverviewTab({ doc, isParsing = false, parsingProgress = 0, parsi
           <CardContent className="p-5">
             <h4 className="font-semibold mb-4 text-xs text-primary uppercase tracking-wider">文档信息</h4>
             <div className="space-y-3 text-sm">
-              <InfoRow label="总页数" value={doc.pages} />
-              <InfoRow label="文件大小" value={doc.size} />
+              <InfoRow label="总页数" value={statistics ? statistics.total_pages : doc.pages} />
+              <InfoRow label="文件大小" value={statistics ? `${statistics.file_size_kb} KB` : doc.size} />
               <InfoRow label="上传日期" value={doc.uploadDate} />
             </div>
           </CardContent>
