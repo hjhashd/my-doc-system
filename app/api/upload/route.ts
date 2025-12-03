@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     const form = await req.formData()
     const file = form.get('file') as unknown as File | null
     const agentUserId = form.get('agentUserId') as string || 'default'
+    const useLargeModelFlag = form.get('useLargeModel') as string | null
     let taskId = form.get('taskId') as string
     
     if (!file) {
@@ -108,34 +109,36 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const pythonServiceUrl = process.env.PYTHON_OCR_SERVICE_URL || 'http://localhost:11111'
-      const ocrRequest = {
-        task_id: taskId,
-        status: 0,
-        agentUserId: parseInt(agentUserId, 10) || 0,
-        file_name: uniqueFileName,
-        input_file_path: '/home/cqj/my-doc-system-uploads/upload',
-        output_file_path: '/home/cqj/my-doc-system-uploads/save'
-      }
-      
-      const response = await fetch(`${pythonServiceUrl}/generate_report/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ocrRequest)
-      })
-      
-      if (!response.ok) {
-        console.error(`Python服务调用失败: ${response.status} ${response.statusText}`)
-        // 不阻止上传完成，但记录错误
-      } else {
-        const result = await response.json()
-        if (result.report_generation_status !== 0) {
-          console.error(`Python服务返回错误: ${result.report_generation_condition}`)
+      const isLarge = useLargeModelFlag === '1' || useLargeModelFlag === 'true'
+      // 仅当未选择大模型时，才调用小模型快速OCR服务，避免双跑
+      if (!isLarge) {
+        const pythonServiceUrl = process.env.PYTHON_OCR_SERVICE_URL || 'http://localhost:11111'
+        const ocrRequest = {
+          task_id: taskId,
+          status: 0,
+          agentUserId: parseInt(agentUserId, 10) || 0,
+          file_name: uniqueFileName,
+          input_file_path: '/home/cqj/my-doc-system-uploads/upload',
+          output_file_path: '/home/cqj/my-doc-system-uploads/save'
+        }
+        
+        const response = await fetch(`${pythonServiceUrl}/generate_report/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ocrRequest)
+        })
+        
+        if (!response.ok) {
+          console.error(`Python服务调用失败: ${response.status} ${response.statusText}`)
+        } else {
+          const result = await response.json()
+          if (result.report_generation_status !== 0) {
+            console.error(`Python服务返回错误: ${result.report_generation_condition}`)
+          }
         }
       }
     } catch (error) {
       console.error('调用Python服务时发生错误:', error)
-      // 不阻止上传完成，但记录错误
     }
 
     return NextResponse.json({ 

@@ -16,7 +16,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from utils.extract_llm_utils import build_schema,load_schema_map,json_fallback_extract,save_json
+# from utils.generate_json_utils import call_ollama,FLAT_CATEGORY_PROMPT_TEMPLATE,save_json
+from doc_utils import load_and_split_document
+from section_base_generater import *
 
 
 # 配置日志
@@ -31,8 +33,7 @@ class ReportRequest(BaseModel):
     task_id: str
     status: int
     agentUserId: int
-    content: str
-    schema_map: str
+    content_file: str
     output_json_file: str   
     
 # 非阻塞超时通知发送函数
@@ -171,7 +172,7 @@ async def monitor_task_timeout(task_id):
         await asyncio.sleep(10)
 
 
-async def extract_json(task_id,content,schema,output_json_file):
+async def generate_json(task_id, content_file,output_json_file):
     # 记录开始处理时间
     process_start_time = datetime.now()
     formatted_start_time = process_start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -212,21 +213,26 @@ async def extract_json(task_id,content,schema,output_json_file):
         await asyncio.sleep(1)
         # 更新进度
         # await notify_processing_status(30, task_id, report_result)
-        logger.info(f"extract_json start!!!!")
+        logger.info(f"generate_json start!!!!")
         # await notify_processing_status(40, task_id, report_result)
 
-
-        print("\n--- 阶段一：将字符串转换为JSON格式 ---")
-        schema_stage1 = build_schema(schema)
-        print("\n--- 阶段二：转换schema的格式 ---")
-        schema_forllm = load_schema_map(schema_stage1)
-        print("\n--- 阶段三：使用Ollama进行LLM提取 ---")
-        merged = json_fallback_extract(
-            content,
-            schema_forllm,
-        )
-        task_status_return = save_json(merged,output_json_file)
-
+        sections = load_and_split_document(content_file)
+        if not sections: return
+        schema = {}
+        print("\n--- 开始生成 Schema (主体感知 + 聚合) ---")
+        for sec in sections:
+            # 跳过内容过短的章节
+            if len(sec['content']) < 10: continue 
+            
+            print(f"分析章节: [{sec['title']}]")
+            fields = call_ollama(PROMPT_TEMPLATE.format(title=sec['title'], content=sec['content']))
+            
+            if fields:
+                valid_fields = [f for f in fields if is_valid_field(f)]
+                if valid_fields:
+                    print(f"  -> 生成字段: {valid_fields}")
+                    schema[sec['title']] = {f: "" for f in valid_fields}
+        task_status_return = save_json(fields_list,output_json_file)
         # 程序执行成功时给前端的返回
         if task_status_return == True:
             report_result = {
@@ -273,8 +279,8 @@ async def extract_json(task_id,content,schema,output_json_file):
 
 # API接口
 # 该接口是后端的 “入口”：
-@app.post("/extract_Attribute/")
-async def extract_Attribute(report: ReportRequest, background_tasks: BackgroundTasks):
+@app.post("/generate_Attribute/")
+async def generate_Attribute(report: ReportRequest, background_tasks: BackgroundTasks):
     '''
     report 是变量
     ReportRequest 是属性
@@ -297,10 +303,9 @@ async def extract_Attribute(report: ReportRequest, background_tasks: BackgroundT
     try:
         logger.info(f"API请求{report.task_id}")
         background_tasks.add_task(
-            extract_json,
+            generate_json,
             task_id=report.task_id,
-            content=report.content,
-            schema=report.schema_map,
+            content=report.content_file,
             output_json_file=report.output_json_file,
         )
 
@@ -389,5 +394,5 @@ async def health_check():
 
 if __name__ == "__main__":
     logger.info("接受前端文本框中的内容生成文档类别词")
-    uvicorn.run(app, host="0.0.0.0", port=16326)
+    uvicorn.run(app, host="0.0.0.0", port=31456)
 

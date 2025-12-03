@@ -1,9 +1,9 @@
 "use client"
 
-import React, { memo, useState, useMemo } from "react"
-import { ScrollArea } from "@/components/ui/scroll-area" 
+import React, { memo, useState, useMemo, useEffect } from "react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { 
   RefreshCw, 
   CheckCircle, 
@@ -13,12 +13,15 @@ import {
   ArrowRight,
   Search,
   FileType,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle
 } from "lucide-react"
 import { Document } from "@/types/document"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
+ 
 
 interface DocumentListProps {
   documents: Document[];
@@ -33,7 +36,6 @@ interface DocumentListProps {
   onViewDocument: (doc: Document) => void;
 }
 
-const ITEMS_PER_PAGE = 10;
 
 export const DocumentList = memo(function DocumentList({
   documents,
@@ -50,6 +52,8 @@ export const DocumentList = memo(function DocumentList({
 }: DocumentListProps) {
   
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const itemsPerPage = 8;
   
 
   // 过滤文档
@@ -59,6 +63,21 @@ export const DocumentList = memo(function DocumentList({
       doc.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [documents, searchQuery]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredDocuments.length / itemsPerPage));
+  }, [filteredDocuments]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [totalPages, page]);
+
+  const paginatedDocuments = useMemo(() => {
+    const start = (page - 1) * itemsPerPage;
+    return filteredDocuments.slice(start, start + itemsPerPage);
+  }, [filteredDocuments, page]);
 
   // 全选逻辑
   const isAllSelected = filteredDocuments.length > 0 && filteredDocuments.every(doc => selectedIds.includes(doc.id));
@@ -74,6 +93,7 @@ export const DocumentList = memo(function DocumentList({
   // 处理搜索
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
+    setPage(1);
   };
 
   return (
@@ -147,7 +167,7 @@ export const DocumentList = memo(function DocumentList({
             </Button>
           </div>
         ) : (
-          <ScrollArea className="h-full min-h-0">
+          <div className="h-full min-h-0 overflow-y-auto">
             <div className="p-3 space-y-2.5 pb-14">
               {filteredDocuments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -157,7 +177,7 @@ export const DocumentList = memo(function DocumentList({
                     <span className="text-xs">未找到相关文档</span>
                 </div>
               ) : (
-                filteredDocuments.map((doc) => (
+                paginatedDocuments.map((doc) => (
                   <DocumentItem 
                     key={doc.id}
                     doc={doc}
@@ -170,7 +190,26 @@ export const DocumentList = memo(function DocumentList({
                 ))
               )}
             </div>
-          </ScrollArea>
+            {totalPages > 1 && (
+              <div className="sticky bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-border/40 px-3 py-2">
+                <div className="flex items-center justify-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                      <Button key={p} variant={p === page ? "default" : "outline"} size="sm" className="h-8 w-8 p-0 text-xs" onClick={() => setPage(p)}>
+                        {p}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -234,9 +273,9 @@ const DocumentItem = memo(function DocumentItem({
 
             <div className="flex-1 min-w-0 space-y-1.5 pt-0.5 pr-2">
                 {/* 标题 */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-start min-w-0">
                         <span className={cn(
-                            "text-sm font-medium leading-snug break-words whitespace-normal transition-colors",
+                            "block max-w-full text-sm font-medium leading-snug break-words whitespace-normal transition-colors",
                             isSelected ? "text-primary" : "text-slate-700"
                         )}>
                             {doc.name}
@@ -324,23 +363,4 @@ function StatusBadge({ status, minimal = false }: { status: string, minimal?: bo
     default:
       return <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-500 border-slate-200 px-1.5 py-0 gap-1 font-normal"><Zap className="w-2.5 h-2.5" />等待</Badge>;
   }
-}
-
-function AlertCircle({ className }: { className?: string }) {
-    return (
-        <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
-            className={className}
-        >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-        </svg>
-    )
 }

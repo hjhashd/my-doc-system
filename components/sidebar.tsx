@@ -311,13 +311,13 @@ export function Sidebar() {
           aria-hidden={!activeCategory}
           aria-label="子菜单"
           className={cn(
-            "fixed left-16 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border shadow-lg z-20 transition-all duration-300",
+            "fixed left-16 top-16 h-[calc(100vh-64px)] w-48 bg-sidebar border-r border-sidebar-border shadow-lg z-[100] transition-all duration-300", // 修改 z-index 为 100, top 改为 16 (假设header高度), width 改为 48 (缩小宽度)
             activeCategory ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"
           )}
           data-submenu-popup
         >
-          <div className="flex items-center h-16 px-6 border-b border-sidebar-border relative">
-            <h3 id="submenu-title" className="text-sm font-semibold text-sidebar-foreground">
+          <div className="flex items-center h-12 px-4 border-b border-sidebar-border relative"> {/* 缩小高度和padding */}
+            <h3 id="submenu-title" className="text-sm font-semibold text-sidebar-foreground truncate">
               {activeCategory && navigation.find(item => !("href" in item) && item.category === activeCategory)?.category}
             </h3>
             {/* 子菜单收起按钮：仅收起当前子菜单，不影响侧边栏状态 */}
@@ -325,7 +325,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               aria-label="收起子菜单"
-              className="absolute right-3 h-6 w-6 rounded-full bg-background border shadow-sm hover:bg-accent transition-transform duration-200 active:scale-95"
+              className="absolute right-2 h-6 w-6 rounded-full bg-background border shadow-sm hover:bg-accent transition-transform duration-200 active:scale-95" // 调整位置
               onClick={() => setActiveCategory(null)}
               title="收起子菜单"
             >
@@ -335,8 +335,8 @@ export function Sidebar() {
           <ScrollArea
             aria-labelledby="submenu-title"
             className={cn(
-              "flex-1 px-3 py-4 transition-[max-height,opacity] duration-300",
-              activeCategory ? "opacity-100 max-h-[calc(100vh-64px)]" : "opacity-0 max-h-0"
+              "flex-1 px-2 py-2 transition-[max-height,opacity] duration-300", // 减少 padding
+              activeCategory ? "opacity-100 max-h-[calc(100vh-112px)]" : "opacity-0 max-h-0" // 调整 max-height 计算
             )}
           >
             <div className="space-y-1" role="group" aria-label="子菜单项">

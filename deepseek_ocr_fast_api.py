@@ -4,6 +4,9 @@ import sys
 import time
 import importlib
 
+
+# sys.path.append('/data/report_generation_mainrun_produce')
+sys.path.append('./fast_api/')
 import aiohttp
 import asyncio
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -13,10 +16,13 @@ from typing import List, Dict, Any, Optional
 import logging
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-import pandas as pd
-from datetime import datetime
 from pathlib import Path
-from utils.generate_json_utils import call_ollama,FLAT_CATEGORY_PROMPT_TEMPLATE,save_json
+import os
+import deepseek_ocr_post_processing.process
+import shutil
+
+
+
 
 
 # 配置日志
@@ -25,19 +31,29 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# 存储任务状态的字典
+# 键为task_id，值为字典，包含状态、进度、结果等信息
 api_tasks = {}
-# 这是前端要给到的参数
+
+
+# 这是前端要给到的参数？？？
+# 定义请求模型 - 【修改点1】添加category字段
 class ReportRequest(BaseModel):
     task_id: str
     status: int
     agentUserId: int
-    content_file: str
-    output_json_file: str   
-    
+    file_name: str
+    input_file_path: str
+    output_file_path: str
+    prompt: str
+
+
 # 非阻塞超时通知发送函数
 async def send_timeout_notification(task_id, timeout_result):
     """
     异步发送超时通知，确保不阻塞监控任务
+
     参数:
     task_id (str): 报告ID
     timeout_result (dict): 包含超时状态信息的字典
@@ -50,13 +66,83 @@ async def send_timeout_notification(task_id, timeout_result):
         logger.error(f"发送任务 {task_id} 超时通知失败: {e}")
 
 
-async def notify_processing_status(process_percentage, task_id, report_result):
+def update_prompt(new_prompt):
+    import re
+
+    with open("./DeepSeek_OCR_vllm/config.py", "r", encoding="utf-8") as f:
+        code = f.read()
+
+    # 替换 PROMPT = 'xxxx'
+    code_new = re.sub(
+        r'PROMPT\s*=\s*["\'].*?["\']',
+        f'PROMPT = {new_prompt!r}',
+        code,
+        flags=re.DOTALL
+    )
+
+    with open("./DeepSeek_OCR_vllm/config.py", "w", encoding="utf-8") as f:
+        f.write(code_new)
+
+
+def deepseek_ocr_process(
+    file_name: str ,
+    input_file_path: str ,
+    prompt: str ,
+    pdf_out_path: str,
+    task_id: str,
+    agentUserId: int)->bool:
+
+
+    # input_path = './input/Original_contract.pdf'
+    # output_path = './pdf4/'
+    num_workers = 48  # image pre-process (resize/padding) workers
+    skip_repeat = True
+
+    ##########################全局修改提示词#########################
+    import json
+    with open("./DeepSeek_OCR_vllm/config.json", "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    cfg["PROMPT"] = prompt
+    with open("./DeepSeek_OCR_vllm/config.json", "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=4)
+    # update_prompt(prompt)
+    # 要在修改完提示词后，再导入库
+    import DeepSeek_OCR_vllm.run_dpsk_ocr_pdf
+    ##############################################################
+    try:
+        success_flag = DeepSeek_OCR_vllm.run_dpsk_ocr_pdf.run_deepseek_ocr_pipeline(
+            input_path=input_file_path+"/"+str(agentUserId)+"/"+task_id + "/" +file_name ,
+            output_path=pdf_out_path+"/"+str(agentUserId)+"/"+task_id + "/" + "ocr_temp_file",
+            # prompt=PROMPT,
+            skip_repeat=skip_repeat,
+            num_workers=num_workers
+        )
+    except Exception as e:
+        return success_flag
+
+    try:
+        md_filename = os.path.splitext(file_name)[0] + ".md"
+        success_flag = deepseek_ocr_post_processing.process.process_deepseek_ocr_md(
+            md_and_flie_input_path = pdf_out_path+"/"+str(agentUserId)+"/"+task_id + "/" + "ocr_temp_file",
+            md_name = md_filename,
+            output_dir = pdf_out_path+"/"+str(agentUserId)+"/"+task_id
+        )
+        if os.path.exists(pdf_out_path+"/"+str(agentUserId)+"/"+task_id + "/" + "ocr_temp_file"):
+            shutil.rmtree(pdf_out_path+"/"+str(agentUserId)+"/"+task_id + "/" + "ocr_temp_file")
+            print(f"✅ 文件夹已成功删除：{pdf_out_path+'/'+str(agentUserId)+'/'+task_id + '/' + 'ocr_temp_file'}")
+        else:
+            print(f"⚠️ 文件夹不存在，无需删除：{pdf_out_path+ '/' +str(agentUserId)+'/'+task_id + '/' + 'ocr_temp_file'}")
+    except Exception as e:
+        return success_flag
+
+
+async def notify_processing_status(process_percentage, task_id, task_result):
     """
     异步发送处理进度通知到指定接口
     参数:
     process_percentage (int): 处理进度百分比
     task_id (str): 报告ID
-    report_result (dict): 包含报告结果信息的字典
+    task_result (dict): 包含任务结果信息的字典
     返回:
     dict: 接口响应结果
     """
@@ -65,12 +151,12 @@ async def notify_processing_status(process_percentage, task_id, report_result):
     task_id_int = int(task_id)
 
     print("process_percentage::", process_percentage)
-    print("report_result::", report_result)
+    print("task_result::", task_result)
     payload = {
-        "filePath": report_result['file_path'],
+        "filePath": task_result['file_path'],
         "process": process_percentage,
         "id": task_id_int,
-        "report_generation_status": report_result['report_generation_status'],
+        "report_generation_status": task_result['report_generation_status'],
     }
     print("payload::", payload)
     headers = {
@@ -120,7 +206,9 @@ async def monitor_task_timeout(task_id):
     # 计算120分钟超时阈值
     timeout_threshold = start_time + timedelta(minutes=120)
     formatted_start_time = start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
     logger.info(f"开始监控任务 {task_id}，超时阈值设置为120分钟，当前时间: {formatted_start_time}")
+
     while True:
         # 任务已不存在或已被移除的检查
         if task_id not in api_tasks:
@@ -170,20 +258,34 @@ async def monitor_task_timeout(task_id):
         await asyncio.sleep(10)
 
 
-async def generate_json(task_id, content,output_json_file):
+async def PDF_TO_WORD_deepseek_ocr(pdf_input_path, pdf_out_path, task_id, file_name, agentUserId, prompt):
     # 记录开始处理时间
     process_start_time = datetime.now()
     formatted_start_time = process_start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     logger.info(f"task开始时间: {formatted_start_time}, 任务ID: {task_id}, 如果处理时间超过120分钟将自动终止")
+
+    # 格式化打印
+    print("=" * 50)
+    print(f"pdf_input_path: {pdf_input_path}")
+    print(f"pdf_out_path: {pdf_out_path}")
+    print(f"task_id: {task_id}")
+    print(f"file_name: {file_name}")
+    print(f"agentUserId: {agentUserId}")
+    print(f"prompt: {prompt}")
+    print("=" * 50)
+
+
+
     # 创建任务专用的记录和初始化状态
     if task_id not in api_tasks:
         api_tasks[task_id] = {}
+
     # 给任务赋值
     api_tasks[task_id]["timeout_flag"] = False
     api_tasks[task_id]["start_time"] = process_start_time
     api_tasks[task_id]["status"] = "processing"
 
-    #启动专属超时监控任务
+    # # 启动专属超时监控任务
     timeout_monitor_task = asyncio.create_task(monitor_task_timeout(task_id))
 
     # 记录开始等待时间
@@ -199,53 +301,87 @@ async def generate_json(task_id, content,output_json_file):
     logger.info(f"3秒等待结束，开始处理报告 ID: {task_id}, 当前时间: {formatted_end_time}")
 
     # 功能程序运行前先指定状态
-    report_result = {
+    task_result = {
         "report_generation_status": 1,
         "report_generation_condition": '报告生成失败',
-        "file_path": output_json_file,
+        "file_path": pdf_out_path,
     }
 
     try:
         # 首先异步发送进度通知
-        # await notify_processing_status(0, task_id, report_result)
+        await notify_processing_status(0, task_id, task_result)
         await asyncio.sleep(1)
         # 更新进度
-        # await notify_processing_status(30, task_id, report_result)
-        logger.info(f"generate_json start!!!!")
-        # await notify_processing_status(40, task_id, report_result)
+        await notify_processing_status(30, task_id, task_result)
 
 
-        # --- 阶段一：扁平化字段发现 ---
-        print("\n--- 阶段一：开始扁平化字段发现 ---")
-        flat_prompt = FLAT_CATEGORY_PROMPT_TEMPLATE.format(document_content=content)
-        # 调用 Ollama 期望返回的是一个扁平的字段名称列表
-        fields_list = call_ollama(flat_prompt)
-        if not fields_list or not isinstance(fields_list, list):
-            print("[!] 错误：未能提取任何有效字段。程序终止。")
-            return
-        print(f"[✓] 阶段一完成！发现 {len(fields_list)} 个关键字段。")
+        # 调用Split_PDF_documents_to_image_API 进行PDF分页
+        # task_status_return = await Split_PDF_documents_to_image_API.pdf_to_img(
+        #     pdf_path=pdf_input_path,
+        #     out_img_path=pdf_out_path+"/pdf_to_img",
+        #     dpi=400,  # 追求极致清晰可设为600（注意：文件会显著变大，处理变慢）
+        #     img_format="png"  # 无损格式，保留所有细节
+        # )
 
-        task_status_return = save_json(fields_list,output_json_file)
+        await notify_processing_status(40, task_id, task_result)
+
+        # 去除背景水印并且智能高清
+        # params = Remove_watermark_and_intelligent_high_definition_API.WatermarkParams(
+        #     gray_min=140, gray_max=240, sat_max=40,
+        #     inpaint_radius=40, dilate_iter=1,
+        #     sharp_strength=1.5, clahe_clip=2.0, clahe_grid=(8, 8),
+        #     smooth_ksize=3, feather=5
+        # )
+
+        # await Remove_watermark_and_intelligent_high_definition_API.remove_watermark_to_files(
+        #     input_path=pdf_out_path+"/pdf_to_img",  # 输入文件夹
+        #     out_clean=pdf_out_path + "/clean",  # 输出文件夹（保持同名）
+        #     out_hd=pdf_out_path + "/hd",  # 输出文件夹（保持同名）
+        #     params=params,
+        #     only_enhance=False,
+        #     recursive=False
+        # )
+
+        # await notify_processing_status(60, task_id, task_result)
+
+        # 去除红色（印章）
+        # await Remove_red_seal_API.remove_red_seal_batch(
+        #     # input_path=Remove_watermark_out_img_path+"hd/",
+        #     input_path=pdf_out_path + "/hd",
+        #     output_path=pdf_out_path + "/remove_red_seal_batch",  # 批量输出文件夹
+        #     Threshold_adjustment_coefficient=1.0  # 调整阈值系数（适合浅红色印章）
+        # )
+
+        await notify_processing_status(70, task_id, task_result)
+
+        task_status_return = deepseek_ocr_process(
+            file_name = file_name,
+            input_file_path = pdf_input_path,
+            prompt = prompt,
+            pdf_out_path = pdf_out_path,
+            task_id = task_id,
+            agentUserId = agentUserId)
+
         # 程序执行成功时给前端的返回
         if task_status_return == True:
-            report_result = {
+            task_result = {
                 "report_generation_status": 0,
                 "report_generation_condition": task_status_return,
-                "file_path": output_json_file,
+                "file_path": pdf_out_path,
             }
 
         # 更新任务完成状态
         if task_id in api_tasks:
             api_tasks[task_id]["status"] = "completed"
-            api_tasks[task_id]["result"] = report_result
+            api_tasks[task_id]["result"] = task_result
             # 清除超时标志，因为任务已正常完成
             api_tasks[task_id]["timeout_flag"] = False
 
-        await notify_processing_status(100, task_id, report_result)
+        await notify_processing_status(100, task_id, task_result)
 
     # 程序执行失败时给前端的返回
     except Exception as e:
-        logger.error(f"生成json失败: {e}")
+        logger.error(f"报告生成失败: {e}")
         logger.error(f"异常堆栈信息:", exc_info=True)
         # 更新任务失败状态
         if task_id in api_tasks:
@@ -261,10 +397,10 @@ async def generate_json(task_id, content,output_json_file):
         try:
             error_result = {
                 "report_generation_status": 1,
-                "report_generation_condition": f"json生成失败: {str(e)}",
+                "report_generation_condition": f"报告生成失败: {str(e)}",
                 "file_path": None,
             }
-        
+
             await notify_processing_status(100, task_id, error_result)
         except Exception as notify_error:
             logger.error(f"发送失败进度通知出错: {notify_error}")
@@ -272,8 +408,8 @@ async def generate_json(task_id, content,output_json_file):
 
 # API接口
 # 该接口是后端的 “入口”：
-@app.post("/generate_Attribute/")
-async def generate_Attribute(report: ReportRequest, background_tasks: BackgroundTasks):
+@app.post("/generate_task/")
+async def generate_report(report: ReportRequest, background_tasks: BackgroundTasks):
     '''
     report 是变量
     ReportRequest 是属性
@@ -281,32 +417,65 @@ async def generate_Attribute(report: ReportRequest, background_tasks: Background
     """
     API接口
     """
+    print('888888888888   我是接收的请求参数   8888888888888', report)
+
     # 记录请求接收时间
+    from datetime import datetime
     request_time = datetime.now()
     formatted_request_time = request_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    print(
+        f'========================= 接收新的请求 [{formatted_request_time}] =================================')
     print(f'接收到的参数：{report}')
 
-    #输出文件的路径，最终为.json文件
-    output_base_dir = report.output_json_file 
-    os.makedirs(output_base_dir, exist_ok=True)
-    output_json_id_path = os.path.join(output_base_dir, f"{report.task_id}.json")
-    report.output_json_file = output_json_id_path
-    print(f"处理文件将保存到: {report.output_json_file}")
+    # # 输入文件的路径,说明输入文件的存储路径的上一级目录，真实路径存储在下一级的agentUserId/task_ids命名的目录下面，如input_file_path是"./input/",agentUserId是1001,task_id是2，输入的文件就存储在./pdf_output/1001/2/下面
+    input_base_path = report.input_file_path
+    input_pdf_id_path = os.path.join(input_base_path, str(report.agentUserId),
+                                     report.task_id)  # 在input_file_path下使用agentUserId/task_id作为专用文件夹
+
+    # # 对传入文件名的前缀名称和后缀进行分离
+    file_name_without_ext, file_ext = os.path.splitext(report.file_name)
+    # # 对文件后缀名称file_ext进行判断，待续完善
+    # # 拼凑出输入文件的绝对路径
+    input_pdf_id_dir = os.path.join(input_pdf_id_path, f'{file_name_without_ext + file_ext}')
+    #
+    # # 输出文件的路径，说明输出文件的路径存储的上一级目录，真实路径存储在下一级的agentUserId/task_id命名的目录下面，如output_file_path是"./pdf_output/",agentUserId是1001,task_id是2，输出的文件就存储在./pdf_output/1001/2/下面
+    output_base_dir = report.output_file_path
+    output_pdf_id_path = os.path.join(output_base_dir, str(report.agentUserId),
+                                      report.task_id)  # 在output_file_path下使用agentUserId/task_id作为专用文件夹
+    os.makedirs(output_pdf_id_path, exist_ok=True)  # 确保目录存在
+    # 【新增】强制修改权限为 777，确保 Next.js 容器可以读取
+    try:
+        os.chmod(output_pdf_id_path, 0o777)
+    except Exception as e:
+        logger.warning(f"修改文件夹权限失败: {e}")
+    print(f"处理文件将保存到: {output_pdf_id_path}")
 
     try:
+        # 【核心修改】直接使用category查询数据库，不再进行名称转换
         logger.info(f"API请求{report.task_id}")
+
+        # 将报告生成任务添加到后台任务，传递计算后的 charts
+        # 将任务添加到后台任务，fast api 调用本地的参数的入口，以及传参
+
+
+
+
         background_tasks.add_task(
-            generate_json,
+            PDF_TO_WORD_deepseek_ocr,
             task_id=report.task_id,
-            content=report.content,
-            output_json_file=report.output_json_file,
+            pdf_input_path=report.input_file_path,
+            pdf_out_path=report.output_file_path,
+            file_name=report.file_name,
+            agentUserId=report.agentUserId,
+            prompt=str(report.prompt)
         )
 
         # 初始化响应，返回给前端的参数
         default_response = {
             "report_generation_status": 0,
-            "report_generation_condition": "生成json请求已接受，正在后台处理中",
-            "file_path": report.output_json_file,
+            "report_generation_condition": "报告请求已接受，正在后台处理中",
+            "file_path": input_pdf_id_dir,
             "status": report.status,
         }
 
@@ -338,14 +507,17 @@ async def generate_Attribute(report: ReportRequest, background_tasks: Background
         return error_response
 
 
-
+# 查询状态的接口，状态的 “查询入口”：
+# 获取任务状态的API（可选，用于客户端查询任务进度）
 @app.get("/report_status/{task_id}")
 async def get_report_status(task_id: str):
     """
     获取报告生成任务状态的API接口
     这个接口允许客户端查询指定报告的生成进度和状态。
+
     参数:
     task_id (str): 报告ID
+
     返回:
     dict: 包含任务状态信息的响应
     """
@@ -353,7 +525,7 @@ async def get_report_status(task_id: str):
         raise HTTPException(status_code=404, detail="找不到该报告任务")
 
     task_info = api_tasks[task_id]
-  
+
     # 如果任务已完成，返回最终结果
     if task_info["status"] == "completed" and task_info["result"]:
         return task_info["result"]
@@ -373,6 +545,7 @@ async def get_report_status(task_id: str):
 async def health_check():
     """
     系统健康检查API接口
+
     这个接口提供系统当前状态的基本信息，用于监控和诊断。
     返回:
     dict: 包含系统健康状态的信息
@@ -386,6 +559,12 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    logger.info("接受前端文本框中的内容生成文档类别词")
-    uvicorn.run(app, host="0.0.0.0", port=31456)
+    logger.info("启动完全基于数据库配置的动态报告生成服务")
+    logger.info("系统特性：")
+    logger.info("  - 支持动态报告类型配置")
+    logger.info("  - 支持动态章节配置")
+    logger.info("  - 支持动态模块导入")
+    logger.info("  - 支持队列管理和超时监控")
+    logger.info("  - 无需代码修改即可添加新报告类型")
+    uvicorn.run(app, host="0.0.0.0", port=22222)
 

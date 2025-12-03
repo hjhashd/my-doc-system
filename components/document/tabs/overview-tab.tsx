@@ -26,7 +26,7 @@ export function OverviewTab({
   if (!doc) return <div className="text-center py-10 text-muted-foreground">请先选择一个文档</div>
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-300 ease-out">
       {/* 核心指标卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
         {statisticsLoading ? (

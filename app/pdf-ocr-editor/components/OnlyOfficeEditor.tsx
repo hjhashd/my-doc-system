@@ -14,8 +14,8 @@ import {
 
 interface OnlyOfficeEditorProps {
   docUrl: string
-  docName?: string
-  callbackUrl?: string
+  docName: string
+  callbackUrl: string
   containerId?: string
   instanceId?: string
   onEditorReady?: (editor: any) => void
@@ -35,7 +35,6 @@ export function OnlyOfficeEditor({
 }: OnlyOfficeEditorProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [isVisible, setIsVisible] = useState(true)
   const isPdfDoc = docUrl?.split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
   const editorRef = useRef<any>(null)
@@ -50,7 +49,7 @@ export function OnlyOfficeEditor({
     return h.toString(36)
   }
 
-  const toggleFullscreen = () => setIsFullscreen(!isFullscreen)
+
 
   const initializeEditor = useCallback(() => {
     if (instanceRef.current) {
@@ -218,7 +217,7 @@ export function OnlyOfficeEditor({
   }, [docUrl, docName, callbackUrl])
 
   useEffect(() => {
-    const currentParams = {docUrl, docName, callbackUrl}
+    const currentParams = {docUrl, docName: docName || '', callbackUrl: callbackUrl || ''}
     const prevParams = initParamsRef.current
     if (prevParams && 
         prevParams.docUrl === currentParams.docUrl && 
@@ -288,35 +287,32 @@ export function OnlyOfficeEditor({
   }, [isVisible])
 
   return (
-    <Card className={`h-full flex flex-col border-0 shadow-sm overflow-hidden transition-all duration-300 ${isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'rounded-xl ring-1 ring-border/50'}`}>
-      <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
+    <Card className={`h-full flex flex-col border-0 shadow-sm overflow-hidden transition-all duration-300 rounded-xl ring-1 ring-border/50`}>
+      <div className="h-12 px-4 border-b bg-card flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <div className={isPdfDoc ? "p-1.5 bg-red-50 rounded-md text-red-600" : "p-1.5 bg-blue-50 rounded-md text-blue-600"}>
-            {isPdfDoc ? <FileText className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+          <div className={isPdfDoc ? "p-1.5 bg-destructive/20 rounded-md text-destructive" : "p-1.5 bg-primary/20 rounded-md text-primary"}>
+            {isPdfDoc ? <FileText className="w-4 h-4 font-bold" /> : <Edit3 className="w-4 h-4 font-bold" />}
           </div>
-          <span className="text-foreground">{isPdfDoc ? '文档预览' : '文档编辑'}</span>
+          <span className="text-foreground font-medium">{isPdfDoc ? '文档预览' : '文档编辑'}</span>
           <span className="text-xs text-muted-foreground max-w-[280px] truncate">{docName || (docUrl ? docUrl.split('/').pop() : '')}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="h-6 px-2 font-normal bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200/50">
+          <Badge variant="secondary" className="h-6 px-2 font-semibold bg-primary/20 text-primary-foreground text-primary hover:bg-primary/30 border-primary/30">
             {isPdfDoc ? 'OnlyOffice 预览中' : 'OnlyOffice 协作中'}
           </Badge>
-          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-secondary" onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </Button>
         </div>
       </div>
-      <CardContent className={`flex-1 p-0 relative bg-white`}>
+      <CardContent className={`flex-1 p-0 relative bg-card`}>
         {isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 backdrop-blur-[1px]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/90 z-10 backdrop-blur-[1px]">
             <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
             <p className="text-xs font-medium text-muted-foreground animate-pulse">正在初始化编辑器...</p>
           </div>
         )}
         {error ? (
           <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
-              <AlertCircle className="h-8 w-8 text-red-500" />
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="h-8 w-8 text-destructive-foreground" />
             </div>
             <h3 className="text-base font-medium text-foreground mb-1">编辑器加载失败</h3>
             <p className="text-sm text-muted-foreground mb-4 max-w-xs">{error}</p>

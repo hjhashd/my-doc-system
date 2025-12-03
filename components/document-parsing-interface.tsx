@@ -66,7 +66,17 @@ export default function DocumentParsingInterface() {
   const handleToggleAll = (checked: boolean) => {
     setSelectedIds(checked ? documents.map(d => d.id) : []);
   };
-  const handleViewDocument = (doc: Document) => { router.push(`/pdf-ocr-editor`) }; // 简化展示
+  const handleViewDocument = (doc: Document) => { 
+    const query = new URLSearchParams({
+      fileName: doc.name,
+      docName: doc.name,
+      taskId: doc.id, 
+      mode: 'edit'
+    });
+
+    // 使用 window.open 打开新窗口，类似于 excel-editor
+    window.open(`/pdf-ocr-editor?${query.toString()}`, '_blank');
+  }; // 简化展示
 
   // 2. 新增：处理单文档智能解析的函数
   const handleRunSmartParsing = async (doc: Document) => {
@@ -332,7 +342,7 @@ export default function DocumentParsingInterface() {
 
 
   return (
-    <div className="p-4 md:p-6 h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="p-4 md:p-6 h-screen flex flex-col bg-slate-50">
       
       {/* 顶部通栏：更简洁，只放全局操作 */}
       <div className="flex items-center justify-between shrink-0 mb-4 px-1">
@@ -363,7 +373,7 @@ export default function DocumentParsingInterface() {
       </div>
 
       {/* 核心改动：一体化大卡片 */}
-      <Card className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-0 border-border/60 shadow-lg overflow-hidden bg-white">
+      <Card className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-0 border-border/60 shadow-lg bg-white">
         
         {/* 左侧：列表栏 (固定宽度 + 响应式调整) */}
         <div className="w-full sm:w-[240px] lg:w-[280px] xl:w-[300px] shrink-0 border-r border-border/40 bg-slate-50/50 flex flex-col min-h-0">
@@ -459,7 +469,7 @@ export default function DocumentParsingInterface() {
             </div>
 
             {/* 右侧 Content (Tabs) */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0">
                 {selectedDoc ? (
                     <Tabs defaultValue="overview" className="h-full flex flex-col">
                         <div className="px-4 border-b border-border/40 bg-white/50">
@@ -482,8 +492,8 @@ export default function DocumentParsingInterface() {
                         </div>
                         
                         {/* Tab 内容区 */}
-                        <div className="flex-1 overflow-hidden bg-slate-50/30">
-                            <ScrollArea className="h-full">
+                        <div className="flex-1 bg-slate-50/30">
+                            <ScrollArea className="h-full overflow-auto">
                                 <div className="p-6 max-w-6xl mx-auto">
                                     <TabsContent value="overview" className="mt-0 space-y-4 focus-visible:ring-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                         <OverviewTab 

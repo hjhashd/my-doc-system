@@ -10,8 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Type, Grid3X3, FileImage, Filter, Copy, Eye, Download, ImageIcon, Layout, List as ListIcon, Grid, ChevronLeft, ChevronRight } from "lucide-react"
 import { ContentDetailItem, DocumentDetails } from "@/types/document"
 import { ImagePreviewModal } from "@/components/document/image-preview-modal"
+import { TextPreviewModal, copyToClipboard } from "@/components/document/text-preview-modal"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { Check } from "lucide-react"
 
 interface ContentTabProps {
   details: DocumentDetails | null;
@@ -27,18 +30,31 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
   const [selectedImage, setSelectedImage] = useState<ContentDetailItem | null>(null)
   const [isImageModalOpen, setIsImageModalOpen] = useState(false)
   
+  const [selectedText, setSelectedText] = useState<ContentDetailItem | null>(null)
+  const [isTextModalOpen, setIsTextModalOpen] = useState(false)
+  
   // 统一分页状态
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 9 // 每页显示9个项目
+  const itemsPerPage = 12 // 每页显示12个项目
 
   const handleImageClick = (imageItem: ContentDetailItem) => {
     setSelectedImage(imageItem)
     setIsImageModalOpen(true)
   }
 
+  const handleTextClick = (textItem: ContentDetailItem) => {
+    setSelectedText(textItem)
+    setIsTextModalOpen(true)
+  }
+
   const handleCloseImageModal = () => {
     setIsImageModalOpen(false)
     setSelectedImage(null)
+  }
+  
+  const handleCloseTextModal = () => {
+    setIsTextModalOpen(false)
+    setSelectedText(null)
   }
 
   // 获取筛选后的所有内容
@@ -135,7 +151,7 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
   const totalPages = getTotalPages(filteredContent)
 
   return (
-    <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-500">
+    <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300 ease-out">
       {/* 筛选与样式栏 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white p-3 rounded-lg border border-border/50 shadow-sm mb-4 gap-4">
         <div className="flex items-center space-x-4 w-full sm:w-auto">
@@ -181,7 +197,7 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
             <>
               <div className={cn(
                 "grid gap-4",
-                  listStyle === 'compact' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : 
+                  listStyle === 'compact' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : 
                   "grid-cols-1 gap-4"
                 )}>
                 {paginatedContent.map((item) => (
@@ -190,6 +206,7 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
                     type={item.itemType as 'text' | 'table' | 'image'} 
                     item={item} 
                     onImageClick={handleImageClick} 
+                    onTextClick={handleTextClick}
                     onTableClick={onTableClick} 
                     style={listStyle} 
                   />
@@ -217,6 +234,13 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
         onClose={handleCloseImageModal}
         imageItem={selectedImage}
       />
+
+      {/* Text Preview Modal */}
+      <TextPreviewModal 
+        isOpen={isTextModalOpen}
+        onClose={handleCloseTextModal}
+        textItem={selectedText}
+      />
     </div>
   )
 }
@@ -239,13 +263,27 @@ function Section({ title, count, icon: Icon, color, children, listStyle }: any) 
 }
 
 // 辅助组件：通用内容卡片
-function ContentCard({ type, item, onImageClick, onTableClick, style = 'compact' }: { 
+function ContentCard({ type, item, onImageClick, onTextClick, onTableClick, style = 'compact' }: { 
   type: 'text'|'table'|'image', 
   item: ContentDetailItem & { itemType?: string },
   onImageClick?: (item: ContentDetailItem) => void,
+  onTextClick?: (item: ContentDetailItem) => void,
   onTableClick?: (tablePath: string) => void,
   style?: 'professional' | 'compact'
 }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (item.content) {
+        copyToClipboard(item.content, () => {
+            setCopied(true)
+            toast.success("内容已复制到剪贴板")
+            setTimeout(() => setCopied(false), 2000)
+        })
+    }
+  }
+
   const getBadgeColor = () => {
     switch(type) {
       case 'text': return 'bg-blue-100 text-blue-700 border-blue-200';
@@ -266,12 +304,12 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'compact'
       meta: "mt-2 text-xs text-slate-500 font-mono"
     },
     compact: {
-      card: "border border-border/60 hover:border-primary/60 shadow-none hover:shadow-sm rounded bg-card flex flex-col h-full",
-      header: "mb-1 pb-1 border-b border-border/10 flex justify-between items-center",
-      content: "p-2 flex-1 flex flex-col",
-      textTitle: "text-sm font-bold truncate",
-      textContent: "text-xs leading-snug line-clamp-3",
-      meta: "mt-auto pt-1 text-[10px] text-muted-foreground"
+      card: "border border-border/60 hover:border-primary/60 shadow-sm hover:shadow-md rounded-lg bg-card flex flex-col h-full overflow-hidden transition-all duration-300",
+      header: "mb-0 px-3 py-2 border-b border-border/10 flex justify-between items-center bg-muted/5",
+      content: "p-3 flex-1 flex flex-col min-h-[100px]",
+      textTitle: "text-sm font-bold truncate text-foreground/90",
+      textContent: "text-xs leading-relaxed line-clamp-6 text-muted-foreground",
+      meta: "mt-auto pt-2 text-[10px] text-muted-foreground border-t border-dashed border-border/30 mt-2"
     }
   }
 
@@ -307,24 +345,25 @@ function ContentCard({ type, item, onImageClick, onTableClick, style = 'compact'
           </div>
           <div className="opacity-60 group-hover:opacity-100 transition-opacity flex gap-1">
              {/* Professional 模式下显示更明显的按钮 */}
-            <Button variant="ghost" size="icon" className={cn("hover:bg-primary/5", style === 'compact' ? "h-6 w-6" : "h-8 w-8")}>
-               {type === 'text' ? <Copy className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} /> : 
-                type === 'table' ? <Eye className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} /> : 
-                <Eye className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} />}
+            <Button variant="ghost" size="icon" className={cn("hover:bg-primary/5", style === 'compact' ? "h-6 w-6" : "h-8 w-8")} onClick={handleCopy}>
+               {copied ? <Check className={cn("text-green-500", style === 'compact' ? "w-3 h-3" : "w-4 h-4")} /> : <Copy className={style === 'compact' ? "w-3 h-3" : "w-4 h-4"} />}
             </Button>
           </div>
         </div>
 
         {/* Body based on Type */}
         {type === 'text' && (
-           <div className="flex-1">
+           <div 
+             className={cn("flex-1 flex flex-col", onTextClick ? "cursor-pointer hover:bg-muted/40 transition-colors rounded-md -mx-1 px-1" : "")}
+             onClick={() => onTextClick && onTextClick(item)}
+           >
              {item.metadata?.heading_title && (
-                <h3 className={cn(currentStyle.textTitle, "truncate")}>
+                <h3 className={cn(currentStyle.textTitle, "truncate mb-1")}>
                     {item.metadata.heading_title}
                 </h3>
              )}
-             <p className={cn(currentStyle.textContent, "whitespace-pre-wrap", style !== 'compact' && "line-clamp-4")}>
-               {item.content || "暂无文本内容"}
+             <p className={cn(currentStyle.textContent, "whitespace-pre-wrap flex-1", style !== 'compact' && "line-clamp-4")}>
+               {item.content ? item.content.replace(/#{1,6}\s/g, '').replace(/\*\*/g, '') : "暂无文本内容"}
              </p>
              {style !== 'compact' && item.metadata && (
                 <div className={currentStyle.meta}>

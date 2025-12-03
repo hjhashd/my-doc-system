@@ -1,3 +1,4 @@
+// app/api/onlyoffice-docurl/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { readdirSync, statSync, existsSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -13,7 +14,12 @@ function getDocName(fileName: string) {
 
 function findActualFile(basePath: string): { physicalFile: string | null, displayName: string } {
   try {
-    // === 1. 优先检查 metadata.json ===
+    // 增加一层检查：确保 basePath 真的是一个目录
+    if (!statSync(basePath).isDirectory()) {
+        return { physicalFile: null, displayName: '' }
+    }
+
+    // === 1. 优先检查 metadata.json (保持不变) ===
     const metadataPath = join(basePath, 'metadata.json')
     if (existsSync(metadataPath)) {
       try {
@@ -30,9 +36,16 @@ function findActualFile(basePath: string): { physicalFile: string | null, displa
     }
 
     // === 2. 降级策略：扫描目录 ===
-    const files = readdirSync(basePath)
+    // 增加 try-catch 包裹 readdirSync，防止权限不足直接炸掉整个请求
+    let files: string[] = []
+    try {
+        files = readdirSync(basePath)
+    } catch (e) {
+        console.error(`[findActualFile] 无法读取目录 ${basePath}:`, e)
+        return { physicalFile: null, displayName: '' }
+    }
     
-    // 查找文档文件（排除目录、临时文件和origin后缀文件）
+    // 查找文档文件
     const docFiles = files.filter(file => {
       if (file.startsWith('~$') || file === 'metadata.json' || file.includes('.origin.')) return false
       const filePath = join(basePath, file)
@@ -40,9 +53,13 @@ function findActualFile(basePath: string): { physicalFile: string | null, displa
         const stat = statSync(filePath)
         if (!stat.isFile()) return false
         
+        // 增加对文件大小的检查，防止读取到正在写入的 0 字节文件
+        if (stat.size === 0) return false;
+
         const ext = file.split('.').pop()?.toLowerCase() || ''
         return ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'].includes(ext)
-      } catch {
+      } catch (e) {
+        // 如果在 stat 期间文件被删除了（比如临时文件夹），直接忽略
         return false
       }
     })
@@ -60,7 +77,8 @@ function findActualFile(basePath: string): { physicalFile: string | null, displa
     
     return { physicalFile: null, displayName: '' }
   } catch (error) {
-    console.error('读取目录失败:', error)
+    // 这里的 catch 是最后一道防线
+    console.error('findActualFile 发生未捕获异常:', error)
     return { physicalFile: null, displayName: '' }
   }
 }

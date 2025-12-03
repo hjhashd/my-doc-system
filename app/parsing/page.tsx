@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useCallback, useRef, startTransition } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import http from "@/lib/http"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -101,8 +101,8 @@ export default function DocumentParsingInterface() {
     if (!docId) return;
     try {
       setDetailsLoading(true);
-      setDocDetails(null); 
-      // 这里可以替换为真实的后端请求
+      // 保留当前详情以避免右侧区域突然空白，引起明显闪烁
+      // 在加载完成后再替换，从而视觉上更平滑
       await new Promise(r => setTimeout(r, 600));
       setDocDetails({ text: [], tables: [], images: [] }); 
     } catch (error) {
@@ -156,7 +156,7 @@ export default function DocumentParsingInterface() {
 
   // 4. 跳转查看/编辑逻辑
   const handleViewDocument = (doc: Document) => {
-    const agentUserId = searchParams.get('agentUserId') || '';
+    const agentUserId = searchParams.get('agentUserId') || '123';
     const query = new URLSearchParams({
         fileName: doc.name,
         docName: doc.name,
@@ -168,7 +168,8 @@ export default function DocumentParsingInterface() {
         query.append('agentUserId', agentUserId);
     }
 
-    router.push(`/pdf-ocr-editor?${query.toString()}`);
+    // 使用 window.open 打开新窗口，类似于 excel-editor
+    window.open(`/word-editor?${query.toString()}`, '_blank');
   };
 
   // 5. 核心逻辑：智能解析 (含停止功能)
@@ -338,6 +339,7 @@ export default function DocumentParsingInterface() {
                               const match = item.content.match(/\{\{#I#:(.*?)\}\}/);
                               if (match && match[1]) {
                                   const fileName = match[1];
+                                  // 修正图片路径，确保指向 img 子目录
                                   imageUrl = `/api/image-proxy?path=/my-doc-system-uploads/save/${agentUserId}/${doc.id}/img/${fileName}`;
                                   
                                   if (!displayName || displayName.startsWith('图片')) {
@@ -698,41 +700,6 @@ export default function DocumentParsingInterface() {
     if (selectedDoc) handleRunParsing(selectedDoc)
   };
 
-  // === 元数据状态 ===
-  // const [fileNames, setFileNames] = useState<Record<string, any>>({})
-
-  // 0. 获取文件元数据
-  // const fetchFileMetadata = useCallback(async () => {
-  //   try {
-  //     const res: any = await http.get('/api/metadata/file-names')
-  //     if (res && res.files) {
-  //       setFileNames(res.files)
-  //     }
-  //   } catch (e) {
-  //     console.error('获取文件元数据失败', e)
-  //   }
-  // }, [])
-
-  // 更新单个文件的元数据
-  // const updateFileMetadata = async (filePath: string, displayName: string, fileType: string = 'xlsx') => {
-  //   try {
-  //     // 乐观更新本地状态
-  //     setFileNames(prev => ({
-  //       ...prev,
-  //       [filePath]: { displayName, fileType, updatedAt: new Date().toISOString() }
-  //     }))
-
-  //     // 发送请求
-  //     await http.post('/api/metadata/file-names', {
-  //       filePath,
-  //       displayName,
-  //       fileType
-  //     })
-  //   } catch (e) {
-  //     console.error('更新文件元数据失败', e)
-  //   }
-  // }
-
   // 初始化加载
   useEffect(() => { 
     fetchDocuments() 
@@ -826,7 +793,7 @@ export default function DocumentParsingInterface() {
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         
         {/* Left: Queue - Responsive Width */}
         <div className="w-full lg:w-[320px] xl:w-[360px] flex flex-col shrink-0 min-h-[400px] lg:min-h-0">
@@ -835,19 +802,21 @@ export default function DocumentParsingInterface() {
             selectedDoc={selectedDoc}
             loading={listLoading}
             error={listError}
-            onSelect={setSelectedDoc}
+            onSelect={(doc) => {
+              startTransition(() => {
+                setSelectedDoc(doc)
+              })
+            }}
             onRefresh={fetchDocuments}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onToggleAll={handleToggleAll}
             onViewDocument={handleViewDocument}
-            onSmartParse={handleRunSmartParsing}
-            isSmartParsing={isSmartParsing}
           />
         </div>
 
         {/* Right: Details Tabs - Flexible Width */}
-        <Card className="flex-1 shadow-sm border border-border/60 flex flex-col min-h-[600px] lg:min-h-0 bg-white/80 backdrop-blur-sm overflow-hidden">
+        <Card className="flex-1 shadow-sm border border-border/60 flex flex-col min-h-[600px] lg:min-h-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="pb-0 shrink-0 border-b border-border/40 bg-muted/20 pt-4 px-6">
             <div className="flex items-center justify-between mb-4">
                <div>

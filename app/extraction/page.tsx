@@ -1,20 +1,41 @@
-
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
-import { DocumentList } from "@/components/document/document-list"
-import { useDocumentList } from "@/hooks/use-document-list"
-import { useEntityExtraction } from "@/hooks/use-entity-extraction"
-import { Document } from "@/types/document"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Play, Save, Plus, Trash2, Edit2, Check, X, FileJson, Loader2 } from "lucide-react"
+import { 
+  RefreshCw, 
+  Save, 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  Check, 
+  X, 
+  Search, 
+  FileText, 
+  Layers, 
+  Database,
+  Clock,
+  Copy,
+  Maximize2,
+  ChevronRight
+} from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
+import { CategoryList } from "@/components/extraction/category-list"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -24,6 +45,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { DocumentList } from "@/components/document/document-list"
 import {
   Table,
   TableBody,
@@ -32,710 +54,863 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
-// Helper to flatten the nested JSON structure for display
-const flattenEntities = (data: any) => {
-  const flattened: any[] = [];
-  if (!data) return flattened;
+// Types
+interface SchemaField {
+  id: string;
+  key: string;
+  value: any;
+}
 
-  Object.entries(data).forEach(([category, fields]: [string, any]) => {
-    Object.entries(fields).forEach(([field, values]: [string, any]) => {
-      // If values is array, it might be multiple extractions for same field
-      if (Array.isArray(values)) {
-        if (values.length === 0) {
-           flattened.push({
-            id: `${category}-${field}-empty`,
-            category,
-            field,
-            value: '',
-            context: ''
-          });
-        } else {
-          values.forEach((val: any, idx: number) => {
-            // Value can be string or object
-            const valueText = typeof val === 'object' ? JSON.stringify(val) : val;
-            flattened.push({
-              id: `${category}-${field}-${idx}`,
-              category,
-              field,
-              value: valueText,
-              context: '' // Context might not be available in this simple structure
-            });
-          });
-        }
-      } else {
-        flattened.push({
-          id: `${category}-${field}`,
-          category,
-          field,
-          value: typeof values === 'object' ? JSON.stringify(values) : values,
-          context: ''
-        });
-      }
-    });
-  });
-  return flattened;
-};
+interface SchemaCategory {
+  name: string;
+  fields: SchemaField[];
+}
 
-// Helper to reconstruct the nested JSON structure from flattened data
-const reconstructEntities = (flattened: any[]) => {
-  const result: any = {};
+// ----------------------------------------------------------------------------
+// 优化组件：长文本展示单元格 (带复制功能)
+// ----------------------------------------------------------------------------
+const ValueDisplayCell = ({ value }: { value: any }) => {
+  const [copied, setCopied] = useState(false)
   
-  flattened.forEach(item => {
-    if (!result[item.category]) {
-      result[item.category] = {};
-    }
-    
-    if (!result[item.category][item.field]) {
-      result[item.category][item.field] = [];
-    }
-    
-    if (item.value && item.value.trim() !== '') {
-       // Try to parse if it looks like JSON/Object, otherwise keep as string
-       let val = item.value;
-       try {
-         if (val.startsWith('{') || val.startsWith('[')) {
-           val = JSON.parse(val);
-         }
-       } catch (e) {
-         // keep as string
-       }
-       result[item.category][item.field].push(val);
-    }
-  });
-  
-  return result;
-};
-
-export default function InformationExtractionPage() {
-  const { documents, loading: listLoading, error: listError, refresh: refreshList } = useDocumentList()
-  const { task, startExtraction, startGeneration, resetTask } = useEntityExtraction()
-  
-  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  
-  // Entity State
-  const [entities, setEntities] = useState<any[]>([])
-  const [rawEntities, setRawEntities] = useState<any>({})
-  const [editingEntityId, setEditingEntityId] = useState<string | null>(null)
-  const [newEntityDialogOpen, setNewEntityDialogOpen] = useState(false)
-  const [newEntity, setNewEntity] = useState({ category: '', field: '', value: '', context: '' })
-  const [formErrors, setFormErrors] = useState<{ category?: string; field?: string }>({})
-  
-  // Search state
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchField, setSearchField] = useState<'all' | 'category' | 'field' | 'value'>('all')
-  
-  // Category management state
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
-  const [categories, setCategories] = useState<string[]>([])
-  const [newCategory, setNewCategory] = useState('')
-  const [editingCategory, setEditingCategory] = useState<string | null>(null)
-
-  // Filter documents to show only DOCX as per requirement or all
-  const filteredDocuments = useMemo(() => {
-    return documents;
-  }, [documents]);
-
-  // Filter entities based on search query
-  const filteredEntities = useMemo(() => {
-    if (!searchQuery.trim()) return entities;
-    
-    const query = searchQuery.toLowerCase();
-    
-    return entities.filter(entity => {
-      switch (searchField) {
-        case 'category':
-          return entity.category.toLowerCase().includes(query);
-        case 'field':
-          return entity.field.toLowerCase().includes(query);
-        case 'value':
-          return entity.value.toLowerCase().includes(query);
-        case 'all':
-        default:
-          return (
-            entity.category.toLowerCase().includes(query) ||
-            entity.field.toLowerCase().includes(query) ||
-            entity.value.toLowerCase().includes(query)
-          );
-      }
-    });
-  }, [entities, searchQuery, searchField]);
-
-  // Extract categories from entities
-  useEffect(() => {
-    const uniqueCategories = Array.from(new Set(entities.map(e => e.category)));
-    setCategories(uniqueCategories);
-  }, [entities]);
-
-  // Category management functions
-  const handleAddCategory = () => {
-    if (newCategory.trim() && !categories.includes(newCategory.trim())) {
-      setCategories([...categories, newCategory.trim()]);
-      setNewCategory('');
-    }
-  };
-
-  const handleDeleteCategory = (category: string) => {
-    setCategories(categories.filter(c => c !== category));
-    // Also remove entities with this category
-    setEntities(entities.filter(e => e.category !== category));
-  };
-
-  const handleEditCategory = (oldCategory: string, newCategoryValue: string) => {
-    if (newCategoryValue.trim() && newCategoryValue !== oldCategory) {
-      setCategories(categories.map(c => c === oldCategory ? newCategoryValue.trim() : c));
-      // Update all entities with this category
-      setEntities(entities.map(e => 
-        e.category === oldCategory ? { ...e, category: newCategoryValue.trim() } : e
-      ));
-    }
-    setEditingCategory(null);
-  };
-
-  // Update entities when task completes
-  useEffect(() => {
-    if (task.status === 'completed' && task.result) {
-      // When extraction is completed, we need to fetch the extracted data
-      // The backend returns the file path, so we need to fetch the actual content
-      if (task.result.file_path) {
-        // Fetch the extracted JSON content from the backend
-        fetchExtractedData(task.result.file_path);
-      } else if (task.result.data) {
-        // If data is directly included in the result
-        setRawEntities(task.result.data);
-        setEntities(flattenEntities(task.result.data));
-      }
-    }
-  }, [task.status, task.result]);
-
-  // Function to fetch extracted data from backend
-  const fetchExtractedData = async (filePath: string) => {
-    try {
-      // We need to create an API endpoint to fetch the file content
-      // For now, let's assume we have an endpoint that can return the file content
-      const response = await fetch(`/api/file-content?path=${encodeURIComponent(filePath)}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRawEntities(data);
-        setEntities(flattenEntities(data));
-      } else {
-        console.error('Failed to fetch extracted data');
-      }
-    } catch (error) {
-      console.error('Error fetching extracted data:', error);
-    }
-  };
-
-  const handleDocumentSelect = (doc: Document) => {
-    setSelectedDoc(doc)
-    // Reset extraction state when switching documents
-    resetTask()
-    setEntities([])
-    setRawEntities({})
+  if (!value || (Array.isArray(value) && value.length === 0) || value === "") {
+    return (
+       <Badge variant="outline" className="text-muted-foreground bg-muted/50 border font-normal">
+         {Array.isArray(value) ? "等待提取..." : "空值"}
+       </Badge>
+    )
   }
 
-  const handleExtract = async () => {
-    if (!selectedDoc) return
-    
-    // Start extraction process - send only entity structure to backend
-    await startExtraction({ 
-      taskId: `${Date.now()}`, // Generate a task ID
-      agentUserId: '123', // Hardcoded for now
-      content: '', // We'll send the document content via the backend
-      schemaMap: JSON.stringify(reconstructEntities(entities)), // Send current entity structure as schema
-      outputJsonFile: `/tmp/output/${selectedDoc.id}` 
-    })
-  }
-  
-  const handleGenerate = async () => {
-    if (!selectedDoc) return
-    
-    // Reconstruct JSON from current entities state
-    const currentJson = reconstructEntities(entities);
-    
-    // Save/Generate call
-    await startGeneration({
-      taskId: `${Date.now()}_gen`,
-      agentUserId: '123',
-      contentFile: `/tmp/output/${selectedDoc.id}/${task.taskId}.json`, // Source JSON file?
-      outputJsonFile: `/tmp/output/${selectedDoc.id}/final`
-    })
-  }
-  
-  const handleAddEntity = () => {
-    // Validate form
-    const errors: { category?: string; field?: string } = {}
-    if (!newEntity.category.trim()) errors.category = "分类是必填项"
-    if (!newEntity.field.trim()) errors.field = "字段是必填项"
-    
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors)
-      return
-    }
+  const stringValue = String(value)
+  const isLongText = stringValue.length > 30
 
-    const id = `${newEntity.category}-${newEntity.field}-${Date.now()}`
-    setEntities([...entities, { ...newEntity, id }])
-    setNewEntity({ category: '', field: '', value: '', context: '' })
-    setFormErrors({})
-    setNewEntityDialogOpen(false)
+  const handleCopy = () => {
+    // 检查 clipboard API 是否可用
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(stringValue)
+        .then(() => {
+          setCopied(true)
+          toast.success("内容已复制")
+          setTimeout(() => setCopied(false), 2000)
+        })
+        .catch(err => {
+          console.error('复制失败:', err)
+          // 降级方案：使用传统方法
+          fallbackCopyToClipboard(stringValue)
+          setCopied(true)
+          toast.success("内容已复制")
+          setTimeout(() => setCopied(false), 2000)
+        })
+    } else {
+      // 降级方案：使用传统方法
+      fallbackCopyToClipboard(stringValue)
+      setCopied(true)
+      toast.success("内容已复制")
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
-  
-  const handleDeleteEntity = (id: string) => {
-    setEntities(entities.filter(e => e.id !== id))
-  }
-  
-  const handleUpdateEntity = (id: string, field: string, value: string) => {
-    setEntities(entities.map(e => e.id === id ? { ...e, [field]: value } : e))
+
+  // 降级复制方案
+  const fallbackCopyToClipboard = (text: string) => {
+    const textArea = document.createElement("textarea")
+    textArea.value = text
+    textArea.style.position = "fixed"
+    textArea.style.left = "-999999px"
+    textArea.style.top = "-999999px"
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-      {/* Left Sidebar - File List */}
-      <div className="w-full sm:w-[240px] lg:w-[280px] xl:w-[300px] border-r border-border/40 bg-background flex flex-col min-h-0">
-        <DocumentList
-          documents={filteredDocuments}
-          selectedDoc={selectedDoc}
-          loading={listLoading}
-          error={listError}
-          selectedIds={selectedIds}
-          onSelect={handleDocumentSelect}
-          onRefresh={refreshList}
-          onToggleSelect={(id) => {
-            setSelectedIds(prev => 
-              prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-            )
-          }}
-          onToggleAll={(checked) => {
-            setSelectedIds(checked ? filteredDocuments.map(d => d.id) : [])
-          }}
-          onViewDocument={(doc) => console.log('View document', doc)}
-          onSmartParse={(doc) => console.log('Smart parse', doc)}
-        />
-      </div>
+    <div className="flex items-center gap-2 max-w-full">
+       <span className="relative flex h-2 w-2 shrink-0">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+       </span>
+       
+       {isLongText ? (
+         <Popover>
+           <PopoverTrigger asChild>
+             <div className="group flex items-center gap-2 cursor-pointer hover:bg-muted/10 p-1.5 rounded-md transition-colors border border-transparent hover:border">
+                <span className="font-mono text-sm text-foreground truncate max-w-[200px] xl:max-w-[300px]" title="点击查看完整内容">
+                  {stringValue}
+                </span>
+                <Maximize2 className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+             </div>
+           </PopoverTrigger>
+           <PopoverContent className="w-[400px] p-0" align="start">
+             <div className="bg-muted/50 border-b px-4 py-2 flex justify-between items-center">
+                <span className="text-xs font-semibold text-muted-foreground">完整内容</span>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleCopy}>
+                  {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                </Button>
+             </div>
+             <div className="p-4 max-h-[300px] overflow-y-auto bg-background text-sm font-mono whitespace-pre-wrap break-all text-foreground leading-relaxed">
+               {stringValue}
+             </div>
+           </PopoverContent>
+         </Popover>
+       ) : (
+         <div className="group flex items-center gap-2">
+            <span className="font-mono text-sm text-foreground bg-emerald-50/50 px-2 py-1 rounded border border-emerald-100/50">
+              {stringValue}
+            </span>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={handleCopy}
+            >
+               {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+            </Button>
+         </div>
+       )}
+    </div>
+  )
+}
 
-      {/* Right Content Area - Extraction & Entity Management */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-muted/5">
-        {selectedDoc ? (
-          <div className="flex-1 flex flex-col h-full overflow-hidden">
-            {/* Header */}
-            <div className="p-4 border-b bg-background flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  {selectedDoc.name}
-                  <Badge variant="outline">{selectedDoc.type}</Badge>
-                </h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  ID: {selectedDoc.id} | 大小: {selectedDoc.size}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button 
-                  onClick={handleExtract} 
-                  disabled={task.status === 'extracting' || task.status === 'generating'}
-                >
-                  {task.status === 'extracting' ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      正在提取...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="mr-2 h-4 w-4" />
-                      提取实体
-                    </>
-                  )}
-                </Button>
-                <Button 
-                  variant="outline"
-                  onClick={handleGenerate}
-                  disabled={entities.length === 0 || task.status === 'extracting' || task.status === 'generating'}
-                >
-                   {task.status === 'generating' ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      正在生成...
-                    </>
-                  ) : (
-                    <>
-                      <FileJson className="mr-2 h-4 w-4" />
-                      生成JSON
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
+
+export default function InformationExtractionPage() {
+  const [loading, setLoading] = useState(false)
+  const [processing, setProcessing] = useState(false)
+  const [startTime, setStartTime] = useState<number | null>(null)
+  const [elapsedTime, setElapsedTime] = useState<string>("00:00")
+  const [schemaData, setSchemaData] = useState<Record<string, any>>({})
+  const [taskId, setTaskId] = useState<string>("") 
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  
+  // Edit state
+  const [editingField, setEditingField] = useState<{category: string, id: string, key: string, value: string} | null>(null)
+  
+  // Bulk Action State
+  const [selectedFieldIds, setSelectedFieldIds] = useState<string[]>([])
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk', ids: string[] } | null>(null)
+
+  // New Field State
+  const [newFieldDialogOpen, setNewFieldDialogOpen] = useState(false)
+  const [newField, setNewField] = useState({ category: '', key: '', value: '' })
+
+  
+  // Document Selection State
+  const [isDocumentDialogOpen, setIsDocumentDialogOpen] = useState(false)
+  const [documents, setDocuments] = useState<any[]>([])
+  const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
+  const [loadingDocuments, setLoadingDocuments] = useState(false)
+  
+  // Load documents when dialog opens
+  useEffect(() => {
+    if (isDocumentDialogOpen) {
+      fetchDocuments()
+    }
+  }, [isDocumentDialogOpen])
+
+  const fetchDocuments = async () => {
+    setLoadingDocuments(true)
+    try {
+      const res = await fetch('/api/document/list')
+      if (!res.ok) throw new Error('Failed to fetch documents')
+      const data = await res.json()
+      if (data.ok) {
+        setDocuments(data.data)
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error("无法加载文档列表")
+    } finally {
+      setLoadingDocuments(false)
+    }
+  }
+  
+  const handleDocumentSelect = async (doc: any) => {
+    setSelectedDocument(doc)
+    setIsDocumentDialogOpen(false)
+    setTaskId(doc.id) 
+    toast.success(`已选择文档: ${doc.name}`)
+    await handleGenerateSchema(doc)
+  }
+
+  const handleGenerateSchema = async (doc: any) => {
+    setProcessing(true)
+    setStartTime(Date.now())
+    setSchemaData({}) 
+    
+    try {
+      const agentUserId = 123; 
+      const currentTaskId = doc.id;
+      const physicalName = doc.physicalName || doc.name;
+      
+      const contentFileHostPath = `/home/cqj/my-doc-system-uploads/save/${agentUserId}/${currentTaskId}/${physicalName}`;
+      const outputJsonDirHost = "/root/zzp/langextract-main/zzpextract/generater_json"; 
+      
+      const res = await fetch('/api/extraction/schema/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: currentTaskId,
+          status: 0,
+          agentUserId: agentUserId,
+          content_file: contentFileHostPath,
+          schema_map_file: outputJsonDirHost
+        })
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(`Failed to start schema generation: ${errorData.error || 'Unknown error'}`);
+      }
+      
+      toast.info("正在分析文档生成Schema...")
+
+      let attempts = 0;
+      const maxAttempts = 30; 
+      
+      const pollSchema = async () => {
+        try {
+          const schemaRes = await fetch(`/api/extraction/schema?taskId=${currentTaskId}&type=generated`)
+          if (schemaRes.ok) {
+             const data = await schemaRes.json()
+             if (Object.keys(data).length > 0) {
+               setSchemaData(data)
+               toast.success("Schema生成完毕")
+               return true
+             }
+          }
+        } catch (e) { console.error(e) }
+        return false
+      }
+
+      const interval = setInterval(async () => {
+        attempts++;
+        const success = await pollSchema();
+        if (success || attempts >= maxAttempts) {
+           clearInterval(interval)
+           setProcessing(false)
+           setStartTime(null)
+           if (!success) toast.error("Schema生成超时，请重试")
+        }
+      }, 2000)
+
+    } catch (error) {
+      console.error(error)
+      toast.error("Schema生成失败")
+      setProcessing(false)
+      setStartTime(null)
+    }
+  }
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (processing && startTime) {
+      interval = setInterval(() => {
+        const now = Date.now()
+        const diff = Math.floor((now - startTime) / 1000)
+        const minutes = Math.floor(diff / 60).toString().padStart(2, '0')
+        const seconds = (diff % 60).toString().padStart(2, '0')
+        setElapsedTime(`${minutes}:${seconds}`)
+      }, 1000)
+    }
+    return () => clearInterval(interval)
+  }, [processing, startTime])
+
+  // Process data into categories for display
+  const categories = useMemo(() => {
+    return Object.entries(schemaData).map(([name, fields]) => ({
+      name,
+      fields: Object.entries(fields as Record<string, any>).map(([key, value], index) => ({
+        id: `${name}-${key}-${index}`,
+        key,
+        value
+      }))
+    }))
+  }, [schemaData])
+
+  // Statistics
+  const stats = useMemo(() => {
+    const totalCategories = categories.length
+    const totalFields = categories.reduce((acc, cat) => acc + cat.fields.length, 0)
+    return { totalCategories, totalFields }
+  }, [categories])
+
+  const displayedFields = useMemo(() => {
+    if (!selectedCategory) return []
+    const category = categories.find(c => c.name === selectedCategory)
+    if (!category) return []
+    if (!searchQuery.trim()) return category.fields
+    return category.fields.filter(field => 
+      field.key.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  }, [categories, selectedCategory, searchQuery])
+
+  useEffect(() => {
+    setSelectedFieldIds([])
+  }, [selectedCategory])
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedFieldIds(displayedFields.map(f => f.id))
+    } else {
+      setSelectedFieldIds([])
+    }
+  }
+
+  const handleSelectField = (id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedFieldIds(prev => [...prev, id])
+    } else {
+      setSelectedFieldIds(prev => prev.filter(fid => fid !== id))
+    }
+  }
+
+  const handleAddField = () => {
+    if (!selectedCategory || !newField.key.trim()) return
+
+    const updatedSchema = { ...schemaData }
+    if (!updatedSchema[selectedCategory]) {
+      updatedSchema[selectedCategory] = {}
+    }
+    
+    if (updatedSchema[selectedCategory][newField.key]) {
+      toast.error("该字段已存在")
+      return
+    }
+
+    updatedSchema[selectedCategory][newField.key] = [] 
+    setSchemaData(updatedSchema)
+    setNewField({ category: '', key: '', value: '' })
+    setNewFieldDialogOpen(false)
+    toast.success("字段添加成功")
+  }
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget || !selectedCategory) return
+
+    const updatedSchema = { ...schemaData }
+    const categoryData = updatedSchema[selectedCategory]
+    
+    if (!categoryData) return
+
+    let deletedCount = 0
+
+    if (deleteTarget.type === 'single') {
+      const fields = categories.find(c => c.name === selectedCategory)?.fields || []
+      const targetField = fields.find(f => f.id === deleteTarget.ids[0])
+      
+      if (targetField) {
+        delete categoryData[targetField.key]
+        deletedCount = 1
+      }
+    } else {
+      const fields = categories.find(c => c.name === selectedCategory)?.fields || []
+      const targetIds = new Set(deleteTarget.ids)
+      
+      fields.forEach(field => {
+        if (targetIds.has(field.id)) {
+           delete categoryData[field.key]
+           deletedCount++
+        }
+      })
+      setSelectedFieldIds([])
+    }
+
+    setSchemaData(updatedSchema)
+    setDeleteConfirmOpen(false)
+    setDeleteTarget(null)
+    toast.success(deletedCount > 1 ? `已删除 ${deletedCount} 个字段` : "字段已删除")
+  }
+
+  const initiateDelete = (id: string) => {
+    setDeleteTarget({ type: 'single', ids: [id] })
+    setDeleteConfirmOpen(true)
+  }
+
+  const initiateBulkDelete = () => {
+    if (selectedFieldIds.length === 0) return
+    setDeleteTarget({ type: 'bulk', ids: [...selectedFieldIds] })
+    setDeleteConfirmOpen(true)
+  }
+  
+  const handleSaveEdit = (originalKey: string, newKey: string) => {
+     if (!editingField || !selectedCategory) return
+     
+     if (originalKey === newKey) {
+       setEditingField(null)
+       return
+     }
+     
+     const updatedSchema = { ...schemaData }
+     const categoryData = updatedSchema[selectedCategory]
+     
+     if (categoryData[newKey]) {
+       toast.error("该字段名已存在")
+       return
+     }
+     
+     const value = categoryData[originalKey]
+     delete categoryData[originalKey]
+     categoryData[newKey] = value
+     
+     setSchemaData(updatedSchema)
+     setEditingField(null)
+     toast.success("字段修改成功")
+  }
+
+  const handleSaveSchema = async () => {
+    if (!selectedDocument) {
+      toast.error("请先选择一个文档")
+      return
+    }
+
+    setProcessing(true)
+    setStartTime(Date.now())
+    
+    try {
+      const agentUserId = 123; 
+      const currentTaskId = taskId || selectedDocument.id;
+      const physicalName = selectedDocument.physicalName || selectedDocument.name;
+      
+      // Step 1: 保存逻辑 (这里直接保留了你的原始逻辑，只是不再展示UI)
+      const resSaveSchema = await fetch('/api/debug/check-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: currentTaskId,
+          schemaData: schemaData
+        })
+      })
+      
+      if (!resSaveSchema.ok) throw new Error('Failed to save schema data')
+      const saveResult = await resSaveSchema.json()
+      if (!saveResult.success) throw new Error('Failed to save schema data')
+      
+      toast.info("Schema已保存，开始智能抽取...")
+      
+      // Step 2: 启动抽取
+      const contentFileHostPath = `/home/cqj/my-doc-system-uploads/save/${agentUserId}/${currentTaskId}/${physicalName}`;
+      const schemaFileHostPath = `/root/zzp/langextract-main/zzpextract/extractenti_json/${agentUserId}/${currentTaskId}.json`;
+      const outputJsonDirHost = "/root/zzp/langextract-main/zzpextract/output"; 
+
+      const resExtract = await fetch('/api/extraction/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: currentTaskId,
+          status: 0,
+          agentUserId: agentUserId,
+          content: contentFileHostPath, 
+          schema_map: schemaFileHostPath, 
+          output_json_file: outputJsonDirHost
+        })
+      })
+
+      if (!resExtract.ok) throw new Error('Failed to start extraction')
+      
+      toast.success("AI 正在读取文档...")
+
+      // Step 3: 轮询结果
+      const pollResult = async () => {
+        let attempts = 0;
+        const maxAttempts = 20; 
+        
+        const intervalId = setInterval(async () => {
+          attempts++;
+          try {
+            const res = await fetch(`/api/extraction/schema?taskId=${currentTaskId}&type=result`);
             
-            {/* Main Content */}
-            <div className="flex-1 overflow-auto p-6">
-              {task.status === 'idle' && entities.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-                  <FileJson className="h-16 w-16 mb-4 opacity-20" />
-                  <p>点击"提取实体"按钮分析文档</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Stats Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">实体总数</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">{entities.length}</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">分类数量</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">
-                          {new Set(entities.map(e => e.category)).size}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">处理状态</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                         {task.status === 'completed' ? (
-                            <div className="text-sm font-medium text-green-600 flex items-center gap-1">
-                                <Check className="w-4 h-4" /> 已完成
-                            </div>
-                         ) : task.status === 'error' ? (
-                            <div className="text-sm font-medium text-destructive flex items-center gap-1">
-                                <X className="w-4 h-4" /> 失败
-                            </div>
-                         ) : task.status !== 'idle' ? (
-                            <div className="text-sm font-medium text-blue-600 flex items-center gap-1">
-                                <Loader2 className="w-4 h-4 animate-spin" /> 处理中
-                            </div>
-                         ) : (
-                            <div className="text-sm font-medium text-muted-foreground">空闲</div>
-                         )}
-                      </CardContent>
-                    </Card>
+            if (res.status === 404) return;
+
+            if (res.ok) {
+              const resultData = await res.json();
+              if (resultData && Object.keys(resultData).length > 0) {
+                clearInterval(intervalId);
+                setSchemaData(resultData);
+                setProcessing(false);
+                setStartTime(null);
+                toast.success("🎉 提取完成！数据已更新");
+                return;
+              }
+            }
+            
+            if (attempts >= maxAttempts) {
+              clearInterval(intervalId);
+              setProcessing(false);
+              setStartTime(null);
+              toast.error("提取时间较长，请稍后刷新页面查看");
+            }
+          } catch (e) {
+            console.error("轮询出错", e);
+          }
+        }, 3000); 
+      };
+
+      pollResult();
+
+    } catch (error) {
+      console.error("Error in handleSaveSchema:", error)
+      toast.error(`抽取任务启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setProcessing(false)
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // Render
+  // ----------------------------------------------------------------------
+  return (
+    <div className="min-h-screen bg-background p-6 md:p-8">
+      <div className="max-w-[1600px] mx-auto space-y-6">
+        
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-6 rounded-xl border shadow-sm">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
+              <Layers className="h-6 w-6 text-violet-600" />
+              智能信息抽取配置
+            </h1>
+            <p className="text-zinc-500 mt-1 text-sm">
+              配置抽取模版，AI 将自动识别文档中的实体分类与关键字段
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Dialog open={isDocumentDialogOpen} onOpenChange={setIsDocumentDialogOpen}>
+               <DialogTrigger asChild>
+                 <Button variant="outline" className="gap-2 bg-card border hover:bg-accent hover:text-accent-foreground transition-all">
+                   <FileText className="w-4 h-4 text-primary" />
+                   {selectedDocument ? (
+                     <span className="max-w-[150px] truncate">{selectedDocument.name}</span>
+                   ) : "选择文档"}
+                 </Button>
+               </DialogTrigger>
+               <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+                 <DialogHeader>
+                   <DialogTitle>选择文档源</DialogTitle>
+                   <DialogDescription>
+                     从已上传的文档库中选择一个文件进行分析
+                   </DialogDescription>
+                 </DialogHeader>
+                 <div className="flex-1 overflow-hidden min-h-0 border rounded-md">
+                    <DocumentList
+                      documents={documents}
+                      selectedDoc={selectedDocument}
+                      loading={loadingDocuments}
+                      error={null}
+                      selectedIds={selectedDocument ? [selectedDocument.id] : []}
+                      onSelect={handleDocumentSelect}
+                      onRefresh={fetchDocuments}
+                      onToggleSelect={() => {}}
+                      onToggleAll={() => {}}
+                      onViewDocument={() => {}}
+                    />
+                 </div>
+               </DialogContent>
+            </Dialog>
+
+            {processing && (
+               <div className="flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-lg border border-primary/20 animate-pulse">
+                 <Clock className="w-4 h-4" />
+                 <span className="font-medium text-sm tabular-nums">{elapsedTime}</span>
+               </div>
+            )}
+            <Button
+                    onClick={handleSaveSchema}
+                    disabled={processing || loading || !selectedDocument}
+                    className={cn(
+                      "bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm transition-all min-w-[140px]",
+                      processing && "opacity-80 cursor-not-allowed"
+                    )}
+                  >
+                    {processing ? (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        正在处理...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        保存并抽取
+                      </>
+                    )}
+                  </Button>
+          </div>
+        </div>
+
+        {/* Stats Section - Compact */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-card p-4 rounded-xl border shadow-sm flex items-center justify-between">
+             <div>
+               <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">分类总数</p>
+               <p className="text-2xl font-bold text-foreground mt-1">{stats.totalCategories}</p>
+             </div>
+             <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
+               <Layers className="h-5 w-5 text-primary" />
+             </div>
+          </div>
+          <div className="bg-card p-4 rounded-xl border shadow-sm flex items-center justify-between">
+             <div>
+               <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">字段总数</p>
+               <p className="text-2xl font-bold text-foreground mt-1">{stats.totalFields}</p>
+             </div>
+             <div className="h-10 w-10 bg-secondary rounded-full flex items-center justify-center">
+               <Database className="h-5 w-5 text-secondary-foreground" />
+             </div>
+          </div>
+          <div className="bg-card p-4 rounded-xl border shadow-sm flex items-center justify-between">
+             <div>
+               <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">当前状态</p>
+               <div className="flex items-center gap-2 mt-1">
+                 <div className={`h-2.5 w-2.5 rounded-full ${processing ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                 <span className="text-lg font-bold text-foreground">{processing ? '运行中' : '就绪'}</span>
+               </div>
+             </div>
+          </div>
+        </div>
+
+        {/* Main Content Area: Responsive Layout */}
+        <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-320px)] min-h-[500px]">
+          
+          {/* Categories Sidebar */}
+          <Card className="w-full lg:w-[320px] xl:w-[380px] flex flex-col border shadow-md shrink-0 overflow-hidden">
+             <CardContent className="p-0 flex-1 bg-muted/30 min-h-0">
+               <ScrollArea className="h-full w-full">
+                 <div className="p-4 w-full min-w-0"> 
+                   <CategoryList 
+                     categories={categories} 
+                     selectedCategory={selectedCategory} 
+                     onSelectCategory={setSelectedCategory} 
+                   />
+                 </div>
+               </ScrollArea>
+             </CardContent>
+          </Card>
+
+          {/* Fields Editor Table */}
+          <Card className="flex-1 flex flex-col border shadow-md overflow-hidden bg-card min-w-0">
+            <CardHeader className="py-4 px-6 border-b bg-card z-10">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-card-foreground truncate">
+                      {selectedCategory || '请选择一个分类'}
+                    </h3>
+                    {selectedCategory && (
+                      <Badge variant="secondary" className="bg-secondary text-secondary-foreground hover:bg-secondary/80">
+                        {displayedFields.length} 个字段
+                      </Badge>
+                    )}
                   </div>
-                  
-                  {/* Entity Table */}
-                  <Card className="flex-1">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                      <div>
-                        <CardTitle>提取的实体</CardTitle>
-                        <CardDescription>查看和编辑提取的信息</CardDescription>
-                      </div>
-                      <Dialog open={newEntityDialogOpen} onOpenChange={setNewEntityDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline">
-                            <Plus className="mr-2 h-4 w-4" /> 添加实体
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>添加新实体</DialogTitle>
-                            <DialogDescription>
-                              手动添加文档中缺失的实体。
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-4 items-center gap-4">
-                              <Label htmlFor="category" className="text-right">分类 <span className="text-red-500">*</span></Label>
-                              <div className="col-span-3 flex gap-2">
-                                <select
-                                  id="category"
-                                  value={newEntity.category}
-                                  onChange={(e) => {
-                                    setNewEntity({...newEntity, category: e.target.value})
-                                    if (formErrors.category) setFormErrors({...formErrors, category: undefined})
-                                  }}
-                                  className={`flex-1 px-3 py-2 border border-input bg-background rounded-md text-sm ${formErrors.category ? "border-red-500" : ""}`}
-                                >
-                                  <option value="">选择分类</option>
-                                  {categories.map(category => (
-                                    <option key={category} value={category}>{category}</option>
-                                  ))}
-                                </select>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setCategoryDialogOpen(true)}
-                                >
-                                  管理
-                                </Button>
-                              </div>
-                              {formErrors.category && <p className="col-span-4 text-xs text-red-500">{formErrors.category}</p>}
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
-                              <Label htmlFor="field" className="text-right">字段 <span className="text-red-500">*</span></Label>
-                              <div className="col-span-3">
-                                <Input 
-                                  id="field" 
-                                  value={newEntity.field} 
-                                  onChange={(e) => {
-                                    setNewEntity({...newEntity, field: e.target.value})
-                                    if (formErrors.field) setFormErrors({...formErrors, field: undefined})
-                                  }}
-                                  placeholder="例如: 合同价款"
-                                  className={formErrors.field ? "border-red-500" : ""}
+                </div>
+                
+                {selectedCategory && (
+                  <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                    {selectedFieldIds.length > 0 && (
+                       <Button 
+                         variant="destructive" 
+                         size="sm" 
+                         onClick={initiateBulkDelete}
+                         className="mr-2 h-9"
+                       >
+                         <Trash2 className="h-4 w-4 mr-1" />
+                         删除 ({selectedFieldIds.length})
+                       </Button>
+                    )}
+                    <div className="relative flex-1 sm:w-60">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="搜索字段..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9 h-9 bg-muted/50 border focus:bg-background transition-colors"
+                      />
+                    </div>
+                    <Dialog open={newFieldDialogOpen} onOpenChange={setNewFieldDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="icon" className="h-9 w-9 bg-primary hover:bg-primary/90 shadow-sm">
+                          <Plus className="h-5 w-5" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>添加字段</DialogTitle>
+                          <DialogDescription>
+                            在 <span className="font-bold text-foreground">{selectedCategory}</span> 分类下添加新字段。
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                          <Label htmlFor="field-name">字段名称</Label>
+                          <Input
+                            id="field-name"
+                            value={newField.key}
+                            onChange={(e) => setNewField({ ...newField, key: e.target.value })}
+                            placeholder="例如：合同编号"
+                            className="mt-2"
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setNewFieldDialogOpen(false)}>取消</Button>
+                          <Button onClick={handleAddField} className="bg-primary hover:bg-primary/90">确认添加</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-0 flex-1 bg-card min-h-0 relative">
+              {selectedCategory ? (
+                <ScrollArea className="h-full">
+                  {/* 使用 fixed layout 防止表格被撑爆 */}
+                  <Table className="w-full table-fixed">
+                    <TableHeader className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
+                      <TableRow className="hover:bg-transparent border">
+                        <TableHead className="w-[50px] pl-6">
+                          <Checkbox 
+                            checked={displayedFields.length > 0 && selectedFieldIds.length === displayedFields.length}
+                            onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                            className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                          />
+                        </TableHead>
+                        <TableHead className="w-[25%] text-muted-foreground font-semibold">字段名称</TableHead>
+                        <TableHead className="w-auto text-muted-foreground font-semibold">提取内容 / 默认值</TableHead>
+                        <TableHead className="w-[120px] text-right pr-6 text-muted-foreground font-semibold">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {displayedFields.length > 0 ? (
+                        displayedFields.map((field) => (
+                          <TableRow key={field.id} className="group hover:bg-muted/30 border transition-colors">
+                            <TableCell className="pl-6">
+                              <Checkbox 
+                                checked={selectedFieldIds.includes(field.id)}
+                                onCheckedChange={(checked) => handleSelectField(field.id, !!checked)}
+                                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                              />
+                            </TableCell>
+                            <TableCell className="font-medium text-foreground">
+                              {editingField?.id === field.id ? (
+                                <Input
+                                  value={editingField.key}
+                                  onChange={(e) => setEditingField({ ...editingField, key: e.target.value })}
+                                  className="h-8 w-full max-w-xs border-primary/30 focus:ring-primary/20"
+                                  autoFocus
                                 />
-                                {formErrors.field && <p className="text-xs text-red-500 mt-1">{formErrors.field}</p>}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
-                              <Label htmlFor="value" className="text-right">值</Label>
-                              <div className="col-span-3">
-                                <Input 
-                                  id="value" 
-                                  value={newEntity.value} 
-                                  onChange={(e) => setNewEntity({...newEntity, value: e.target.value})}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleAddEntity}>保存实体</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </CardHeader>
-                    <CardContent>
-                      {/* Search Controls */}
-                      <div className="flex flex-col sm:flex-row gap-2 mb-4">
-                        <Input
-                          placeholder="搜索实体..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="flex-1"
-                        />
-                        <select
-                          value={searchField}
-                          onChange={(e) => setSearchField(e.target.value as 'all' | 'category' | 'field' | 'value')}
-                          className="px-3 py-2 border border-input bg-background rounded-md text-sm"
-                        >
-                          <option value="all">所有字段</option>
-                          <option value="category">分类</option>
-                          <option value="field">字段</option>
-                          <option value="value">值</option>
-                        </select>
-                        {searchQuery && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSearchQuery('')}
-                          >
-                            清除
-                          </Button>
-                        )}
-                      </div>
-                      
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[200px]">分类</TableHead>
-                            <TableHead className="w-[200px]">字段</TableHead>
-                            <TableHead>值</TableHead>
-                            <TableHead className="w-[100px] text-right">操作</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredEntities.map((entity) => (
-                            <TableRow key={entity.id}>
-                              <TableCell className="font-medium text-xs">
-                                {editingEntityId === entity.id ? (
-                                  <Input 
-                                    value={entity.category} 
-                                    onChange={(e) => handleUpdateEntity(entity.id, 'category', e.target.value)}
-                                    className="h-8 text-xs"
-                                  />
-                                ) : (
-                                  <Badge variant="outline" className="font-normal">{entity.category}</Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm">
-                                {editingEntityId === entity.id ? (
-                                  <Input 
-                                    value={entity.field} 
-                                    onChange={(e) => handleUpdateEntity(entity.id, 'field', e.target.value)}
-                                    className="h-8"
-                                  />
-                                ) : (
-                                  entity.field
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm">
-                                {editingEntityId === entity.id ? (
-                                  <Input 
-                                    value={entity.value} 
-                                    onChange={(e) => handleUpdateEntity(entity.id, 'value', e.target.value)}
-                                    className="h-8"
-                                  />
-                                ) : (
-                                  entity.value
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  {editingEntityId === entity.id ? (
-                                    <>
-                                      <Button 
-                                        size="icon" 
-                                        variant="ghost" 
-                                        className="h-8 w-8 text-green-600"
-                                        onClick={() => setEditingEntityId(null)}
-                                      >
-                                        <Check className="h-4 w-4" />
-                                      </Button>
-                                    </>
-                                  ) : (
-                                    <Button 
-                                      size="icon" 
-                                      variant="ghost" 
-                                      className="h-8 w-8"
-                                      onClick={() => setEditingEntityId(entity.id)}
-                                    >
-                                      <Edit2 className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  <Button 
-                                    size="icon" 
-                                    variant="ghost" 
-                                    className="h-8 w-8 text-destructive"
-                                    onClick={() => handleDeleteEntity(entity.id)}
+                              ) : (
+                                <span>{field.key}</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                               {/* 优化后的值显示组件 */}
+                               <ValueDisplayCell value={field.value} />
+                            </TableCell>
+                            <TableCell className="text-right pr-6">
+                              {editingField?.id === field.id ? (
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 text-primary hover:text-primary/90 hover:bg-primary/10 rounded-full"
+                                    onClick={() => handleSaveEdit(field.key, editingField.key)}
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 text-muted-foreground hover:text-muted-foreground/90 hover:bg-muted/10 rounded-full"
+                                    onClick={() => setEditingField(null)}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full"
+                                    onClick={() => setEditingField({
+                                      category: selectedCategory,
+                                      id: field.id,
+                                      key: field.key,
+                                      value: JSON.stringify(field.value)
+                                    })}
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
+                                    onClick={() => initiateDelete(field.id)}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          {filteredEntities.length === 0 && (
-                            <TableRow>
-                              <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                                {searchQuery ? '未找到匹配的实体' : '未找到实体'}
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={4} className="h-48 text-center">
+                            <div className="flex flex-col items-center justify-center text-muted-foreground">
+                               <Search className="h-10 w-10 mb-2 opacity-20" />
+                               <p>{searchQuery ? '未找到匹配的字段' : '该分类下暂无字段'}</p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground bg-muted/30">
+                  <div className="bg-background rounded-full p-6 mb-4 border shadow-sm">
+                     <Layers className="h-8 w-8 text-muted-foreground/50" />
+                  </div>
+                  <h3 className="text-foreground font-medium mb-1">未选择分类</h3>
+                  <p className="text-sm text-muted-foreground">请从左侧列表选择一个分类以管理其字段</p>
                 </div>
               )}
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-              <FileJson className="w-8 h-8 opacity-50" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">未选择文档</h3>
-            <p className="max-w-sm text-center text-sm">
-              从左侧列表中选择文档以开始提取信息和管理实体。
-            </p>
-          </div>
-        )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* Category Management Dialog */}
-      <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>管理分类</DialogTitle>
-            <DialogDescription>
-              添加、编辑或删除实体分类。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="新分类名称"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-              />
-              <Button onClick={handleAddCategory}>添加</Button>
-            </div>
-            <div className="max-h-[200px] overflow-y-auto">
-              {categories.length === 0 ? (
-                <p className="text-center text-muted-foreground py-4">暂无分类</p>
-              ) : (
-                <div className="space-y-2">
-                  {categories.map((category) => (
-                    <div key={category} className="flex items-center gap-2">
-                      {editingCategory === category ? (
-                        <>
-                          <Input
-                            defaultValue={category}
-                            onChange={(e) => setEditingCategory(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                const input = e.target as HTMLInputElement;
-                                handleEditCategory(category, input.value);
-                              }
-                            }}
-                            className="flex-1"
-                            ref={(input) => {
-                              if (input) {
-                                input.focus();
-                                input.select();
-                              }
-                            }}
-                          />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              const input = document.querySelector(`input[defaultValue="${category}"]`) as HTMLInputElement;
-                              handleEditCategory(category, input?.value || '');
-                            }}
-                          >
-                            保存
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditingCategory(null)}
-                          >
-                            取消
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <div className="flex-1 px-3 py-2 border rounded-md bg-muted">
-                            {category}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setEditingCategory(category)}
-                          >
-                            编辑
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDeleteCategory(category)}
-                          >
-                            删除
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setCategoryDialogOpen(false)}>完成</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === 'bulk' 
+                ? `您确定要删除选中的 ${deleteTarget.ids.length} 个字段吗？` 
+                : "您确定要删除这个字段吗？"}
+              此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+               setDeleteConfirmOpen(false)
+               setDeleteTarget(null)
+            }}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} variant="destructive">
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -54,7 +54,7 @@ export function ImagePreviewModal({ isOpen, onClose, imageItem }: ImagePreviewMo
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl w-full h-[80vh] p-0 overflow-hidden">
+      <DialogContent className="max-w-[95vw] w-full h-[90vh] p-0 overflow-hidden flex flex-col" showCloseButton={false}>
         <div className="relative w-full h-full flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">

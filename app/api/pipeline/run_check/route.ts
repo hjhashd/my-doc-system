@@ -20,15 +20,14 @@ export async function POST(req: NextRequest) {
     // 构造传递给 Python 的参数
     // 注意：这里的 input_file_path 需要是 Python 容器/服务能访问到的绝对路径
     // Docker 挂载映射关系是 /home/cqj/my-doc-system-uploads/save -> /app/public/save
-    // Python 脚本里拼接逻辑是: input_file_path + taskId + fileName (看代码似乎漏了 agentUserId)
-    // 我们这里传入包含 agentUserId 的路径作为 input_file_path 的基础
+    // Python 脚本里会自动拼接 agentUserId，所以我们这里不需要在路径中包含 agentUserId
     // Python 服务运行在主机上，所以我们需要使用主机路径
     const baseUploadPath = '/home/cqj/my-doc-system-uploads/save' 
     
     // 根据 pipeline_api.py 的逻辑，我们需要传入 input_file_path
-    // 它的拼接逻辑是 os.path.join(req_data.input_file_path, str(req_data.task_id), req_data.file_name)
-    // 所以我们要把 agentUserId 拼在 input_file_path 里
-    const pythonInputPath = `${baseUploadPath}/${agentUserId}`
+    // 它的拼接逻辑是: input_file_path + agentUserId + taskId + fileName
+    // 所以我们这里只需要传入基础路径，不需要包含 agentUserId
+    const pythonInputPath = baseUploadPath
 
     const payload = {
       file_name: fileName, // 例如 "测试文档.docx"

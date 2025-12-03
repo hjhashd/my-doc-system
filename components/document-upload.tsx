@@ -1,90 +1,90 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card" // 新增 CardFooter
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Switch } from "@/components/ui/switch"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Upload,
   FileText,
-  FileSpreadsheet,
-  Presentation,
-  Globe,
   X,
-  Settings,
   Zap,
-  Clock,
   Brain,
   CheckCircle,
   AlertCircle,
+  Sparkles,
+  Rocket,
+  Bot,
+  Play, // 新增图标
+  Loader2 // 新增图标
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
+// 1. 修改接口：新增 serverData 用于暂存上传成功后的数据
 interface UploadedFile {
   id: string
   name: string
   size: number
   type: string
+  // 新增 'ready' 状态，表示已上传文件但未开始OCR
+  status?: "uploading" | "ready" | "processing" | "completed" | "error"
+  progress?: number
+  // 暂存后端返回的关键信息
+  serverData?: {
+    taskId: string
+    fileName: string
+    localUrl: string
+    agentUserId: string
+  }
 }
 
-const supportedFormats = [
-  { type: "PDF", icon: FileText, description: "PDF文档（文本型、扫描件、混合型）" },
-  { type: "Word", icon: FileText, description: "Word文档（.doc, .docx）" },
-]
+const DEFAULT_PROMPT = `<image>\n<|grounding|>Convert the document to markdown,Filter out watermarks named CSG, keep table structure.`
 
-const processingTemplates = [
-  { id: "contract", name: "合同文档", description: "专门用于合同条款和法律文档的解析" },
-  { id: "report", name: "研究报告", description: "学术论文和研究报告的结构化分析" },
-  { id: "financial", name: "财务文档", description: "财务报表和会计文档的数据提取" },
-  { id: "technical", name: "技术文档", description: "技术规范和API文档的解析" },
-  { id: "general", name: "通用模板", description: "适用于各种类型文档的通用解析" },
-]
-
+import { useRef } from "react"
+// ...
 export function DocumentUpload() {
   const router = useRouter()
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const fileListRef = useRef<HTMLDivElement>(null)
+
+  // 监听 uploadedFiles 变化，如果有新文件加入（长度增加），自动滚动到底部
+  useEffect(() => {
+    if (uploadedFiles.length > 0 && fileListRef.current) {
+        // 使用 setTimeout 确保 DOM 更新后再滚动
+        setTimeout(() => {
+            fileListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }, 100)
+    }
+  }, [uploadedFiles.length]) // 仅在长度变化时触发，避免状态更新时频繁滚动
   const [dragActive, setDragActive] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState("general")
-  const [extractionSettings, setExtractionSettings] = useState({
-    enableEntityExtraction: true,
-    enableRelationExtraction: true,
-    enableKnowledgeGraph: true,
-    confidenceThreshold: 0.8,
-    customInstructions: "",
-  })
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [processingMessage, setProcessingMessage] = useState("")
-  const [processingProgress, setProcessingProgress] = useState(0)
+  
   const [useLargeModel, setUseLargeModel] = useState(false)
-  const [sseConnection, setSseConnection] = useState<EventSource | null>(null)
+  const [customPrompt, setCustomPrompt] = useState(DEFAULT_PROMPT)
+  
+  // 控制是否正在进行批量处理
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
     try {
       const v = localStorage.getItem("useLargeModel")
-      setUseLargeModel(v === "1")
+      if (v === "1") setUseLargeModel(true)
     } catch {}
   }, [])
 
-  const handleToggleLargeModel = (checked: boolean) => {
-    setUseLargeModel(checked)
+  const handleModelChange = (value: string) => {
+    const isLarge = value === "large"
+    setUseLargeModel(isLarge)
     try {
-      localStorage.setItem("useLargeModel", checked ? "1" : "0")
+      localStorage.setItem("useLargeModel", isLarge ? "1" : "0")
     } catch {}
-    toast({
-      title: checked ? "已启用大模型" : "已切换为小模型",
-      description: checked ? "更高质量，处理时间更长" : "更快速度，结果较为简略",
-    })
   }
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -101,124 +101,189 @@ export function DocumentUpload() {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
-
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFiles(e.dataTransfer.files)
     }
-  }, [])
+  }, []) 
 
+  // 2. 修改：只负责上传文件，不触发 OCR
   const handleFiles = async (files: FileList) => {
-    // 默认用户ID，实际应用中应该从登录状态获取
-    const agentUserId = "123";
-    // 不再传递taskId，让后端自动生成顺序编号
+    const agentUserId = "123"
 
     for (const file of Array.from(files)) {
+      const tempId = Math.random().toString(36).substr(2, 9)
       const newFile: UploadedFile = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: tempId,
         name: file.name,
         size: file.size,
         type: file.type,
+        status: "uploading",
+        progress: 0
       }
+      
+      setUploadedFiles(prev => [newFile, ...prev])
 
-      // 上传到后端，保存到基于用户ID和任务ID的目录结构
       const formData = new FormData()
       formData.append('file', file)
       formData.append('agentUserId', agentUserId)
+      // 上传阶段其实不需要 model 参数，但为了兼容保持一致可以带上
       formData.append('useLargeModel', useLargeModel ? '1' : '0')
-      // 不再传递taskId，让后端自动生成顺序编号
 
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData })
         if (!res.ok) throw new Error('上传失败')
         const data = await res.json()
 
-        try {
-          await fetch('/api/ocr', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              task_id: data.taskId,
-              status: 2,
-              agentUserId: agentUserId,
-              file_name: data.fileName,
-              input_file_path: '/home/cqj/my-doc-system-uploads/upload',
-              output_file_path: '/home/cqj/my-doc-system-uploads/save',
-              use_large_model: useLargeModel,
-              model_size: useLargeModel ? 'large' : 'small'
-            })
-          })
-        } catch {}
-
-        setIsProcessing(true)
-        setProcessingMessage(useLargeModel ? '已启用大模型处理，正在后台生成可编辑文档...' : '任务已提交，正在后台处理...')
-        setProcessingProgress(5)
-
-        const pollIntervalMs = useLargeModel ? 4000 : 3000
-        let attempts = 0
-        const maxAttempts = useLargeModel ? 80 : 40
-
-        const poll = async () => {
-          attempts++
-          try {
-            const params = new URLSearchParams({
-              agentUserId: agentUserId,
-              taskId: data.taskId,
-              fileName: data.fileName
-            })
-            const r = await fetch(`/api/onlyoffice-docurl?${params.toString()}`)
-            const j = await r.json()
-            if (j && j.ok) {
-              setIsProcessing(false)
-              // 对于所有文件类型，都使用原始文件URL作为fileUrl
-              const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(j.docUrl)}&docName=${encodeURIComponent(j.docName)}&fileUrl=${encodeURIComponent(data.localUrl)}&callbackUrl=${encodeURIComponent(j.callbackUrl)}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
-              router.push(navigateUrl)
-              return
-            }
-            if (j && j.processing) {
-              setProcessingMessage(j.message || '文档处理中...')
-              setProcessingProgress(Math.min(95, 5 + attempts * 2))
-              if (attempts < maxAttempts) setTimeout(poll, pollIntervalMs)
-              else {
-                setIsProcessing(false)
-                // 对于所有文件类型，都使用原始文件URL作为fileUrl
-                const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
-                router.push(navigateUrl)
-              }
-              return
-            }
-            setIsProcessing(false)
-            // 对于所有文件类型，都使用原始文件URL作为fileUrl
-            const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
-            router.push(navigateUrl)
-          } catch {
-            if (attempts < maxAttempts) {
-              setTimeout(poll, pollIntervalMs)
-            } else {
-              setIsProcessing(false)
-              // 对于所有文件类型，都使用原始文件URL作为fileUrl
-              const navigateUrl = `/pdf-ocr-editor?fileUrl=${encodeURIComponent(data.localUrl)}&docName=${encodeURIComponent(data.fileName)}&fileName=${encodeURIComponent(newFile.name)}&callbackUrl=${encodeURIComponent('/api/onlyoffice-callback')}&agentUserId=${encodeURIComponent(agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
-              router.push(navigateUrl)
-            }
+        // 关键修改：上传成功后，状态变为 'ready'，并存储 serverData
+        setUploadedFiles(prev => prev.map(f => f.id === tempId ? { 
+          ...f, 
+          status: "ready", // 这里改为 ready
+          progress: 100, // 上传进度满了，但总任务还没开始
+          serverData: {
+            taskId: data.taskId,
+            fileName: data.fileName,
+            localUrl: data.localUrl,
+            agentUserId: agentUserId
           }
-        }
-        // 立即开始轮询，不再等待3秒
-        poll()
+        } : f))
+
       } catch (e) {
-        const blobUrl = URL.createObjectURL(file)
-        const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(blobUrl)}&fileUrl=${encodeURIComponent(blobUrl)}&docName=${encodeURIComponent(newFile.name)}&fileName=${encodeURIComponent(newFile.name)}&agentUserId=${encodeURIComponent(agentUserId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}`
-        router.push(navigateUrl)
+        setUploadedFiles(prev => prev.map(f => f.id === tempId ? { ...f, status: "error" } : f))
+        toast({
+            variant: "destructive",
+            title: "文件上传失败",
+            description: file.name
+        })
       }
     }
   }
 
-  const removeFile = (fileId: string) => {
-    setUploadedFiles((prev) => prev.filter((file) => file.id !== fileId))
+  const [startTime, setStartTime] = useState<number | null>(null)
+  const [elapsedTime, setElapsedTime] = useState<number>(0)
+
+  // 计时器逻辑
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    // 只要有 startTime，就开始计时，直到手动清除或重置
+    if (startTime) {
+      timer = setInterval(() => {
+        setElapsedTime(Date.now() - startTime)
+      }, 100)
+    }
+    return () => clearInterval(timer)
+  }, [startTime])
+
+  const formatTime = (ms: number) => {
+    const seconds = (ms / 1000).toFixed(1)
+    return `${seconds}s`
   }
 
-  const getFileIcon = (type: string) => {
-    if (type.includes("pdf")) return FileText
-    if (type.includes("word") || type.includes("document") || type.includes("doc")) return FileText
-    return FileText
+  // 3. 新增：用户点击“开始”后触发的逻辑
+  const handleStartProcessing = async () => {
+    // 找出所有状态为 ready 的文件
+    const filesToProcess = uploadedFiles.filter(f => f.status === "ready" && f.serverData)
+    
+    if (filesToProcess.length === 0) {
+        toast({ title: "没有待处理的文件", description: "请先上传文件" })
+        return
+    }
+
+    const now = Date.now()
+    setStartTime(now) // 开始计时
+    setElapsedTime(0)
+    setIsBatchProcessing(true)
+
+    // 并行或串行处理都可以，这里演示并行触发
+    const tasks = filesToProcess.map(async (file) => {
+        if (!file.serverData) return
+
+        // 更新状态为 processing
+        setUploadedFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: "processing", progress: 5 } : f))
+
+        try {
+            // 构造 OCR 请求
+            const ocrBody: any = {
+                task_id: file.serverData.taskId,
+                status: 2,
+                agentUserId: file.serverData.agentUserId,
+                file_name: file.serverData.fileName,
+                // 这里写死路径，或者由后端处理
+                input_file_path: '/home/cqj/my-doc-system-uploads/upload', 
+                output_file_path: '/home/cqj/my-doc-system-uploads/save',
+                // 关键：在这里将用户当前选择的模型参数传进去
+                use_large_model: useLargeModel, 
+                prompt: useLargeModel ? customPrompt : undefined
+            }
+
+            // 触发 OCR
+            await fetch('/api/ocr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(ocrBody)
+            })
+
+            // 开始轮询
+            await pollStatus(file.id, file.serverData, now)
+
+        } catch (e) {
+            console.error(e)
+            setUploadedFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: "error" } : f))
+        }
+    })
+
+    await Promise.all(tasks)
+    setIsBatchProcessing(false)
+  }
+
+  // 4. 抽离轮询逻辑
+  const pollStatus = async (fileId: string, data: NonNullable<UploadedFile['serverData']>, currentStartTime: number) => {
+    const pollIntervalMs = useLargeModel ? 4000 : 2000
+    let attempts = 0
+    const maxAttempts = useLargeModel ? 120 : 60 // 增加次数防止大模型超时
+
+    const poll = async () => {
+        attempts++
+        try {
+            const params = new URLSearchParams({
+                agentUserId: data.agentUserId,
+                taskId: data.taskId,
+                fileName: data.fileName
+            })
+            const r = await fetch(`/api/onlyoffice-docurl?${params.toString()}`)
+            const j = await r.json()
+
+            // 模拟进度条动画
+            const currentProgress = Math.min(95, 5 + attempts * 2)
+            setUploadedFiles(prev => prev.map(f => f.id === fileId ? { ...f, progress: currentProgress } : f))
+
+            if (j && j.ok) {
+                const finalTime = Date.now() - currentStartTime // 计算最终耗时
+                
+                // 完成！跳转
+                setUploadedFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: "completed", progress: 100 } : f))
+                const navigateUrl = `/pdf-ocr-editor?docUrl=${encodeURIComponent(j.docUrl)}&docName=${encodeURIComponent(j.docName)}&fileUrl=${encodeURIComponent(data.localUrl)}&callbackUrl=${encodeURIComponent(j.callbackUrl)}&agentUserId=${encodeURIComponent(data.agentUserId)}&taskId=${encodeURIComponent(data.taskId)}&model=${encodeURIComponent(useLargeModel ? 'large' : 'small')}&elapsedTime=${finalTime}`
+                
+                // 如果是批量处理，通常不自动跳转，或者只跳转第一个。这里为了演示，只跳转最后一个完成的，实际业务中可能需要优化
+                if (uploadedFiles.length === 1) {
+                    router.push(navigateUrl)
+                }
+                return
+            }
+            
+            if (attempts < maxAttempts) {
+                setTimeout(poll, pollIntervalMs)
+            } else {
+                 setUploadedFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: "error" } : f))
+            }
+        } catch {
+             // ... 错误处理逻辑
+        }
+    }
+    poll()
+  }
+
+  const removeFile = (fileId: string) => {
+    setUploadedFiles((prev) => prev.filter((file) => file.id !== fileId))
   }
 
   const formatFileSize = (bytes: number) => {
@@ -228,100 +293,77 @@ export function DocumentUpload() {
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
+  
+  // 计算有多少文件准备好了
+  const readyCount = uploadedFiles.filter(f => f.status === 'ready').length
 
   return (
-    <div className="p-6 space-y-6">
-      {isProcessing && (
-        <div className="fixed inset-0 bg-muted/30 z-50 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-2xl shadow-lg border w-full max-w-md">
-            <div className="relative w-16 h-16 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-primary/10"></div>
-              <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
-              <FileText className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-center space-y-1 w-full">
-              <h3 className="font-semibold text-lg text-foreground">正在处理文档</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {processingMessage || '请稍候...'}
-              </p>
-              <Progress value={processingProgress} className="w-full" />
-            </div>
+    <div className="max-w-7xl mx-auto p-6 space-y-8 min-h-screen bg-gradient-to-b from-background to-muted/20">
+      {/* 头部标题区域 */}
+      <div className="relative overflow-hidden rounded-2xl bg-primary/5 p-8 md:p-12 text-center lg:text-left lg:flex lg:items-center lg:justify-between gap-8 border border-primary/10">
+        <div className="absolute inset-0 bg-grid-primary/5 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))]" />
+        <div className="relative z-10 max-w-2xl">
+          <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/80 mb-4">
+            ✨ 全新升级
           </div>
+          <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl mb-4">
+            智能文档解析中心
+          </h1>
+          <p className="text-lg text-muted-foreground">
+            基于先进 AI 引擎，精准提取文档中的结构化数据。支持 PDF、Word 等多种格式，一键上传，即刻解析。
+          </p>
         </div>
-      )}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">文档上传与处理</h1>
-          <p className="text-muted-foreground mt-1">支持多种格式的智能文档解析和信息抽取</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Badge variant="outline" className="bg-accent/10 text-accent-foreground border-accent/20">
-            <Zap className="w-3 h-3 mr-1" />
-            AI 增强处理
-          </Badge>
-          <div className="flex items-center space-x-2">
-            <Switch checked={useLargeModel} onCheckedChange={handleToggleLargeModel} disabled={isProcessing} />
-            <span className="text-sm text-muted-foreground">{useLargeModel ? "大模型（高质量）" : "小模型（快速）"}</span>
-          </div>
+        <div className="relative z-10 mt-8 lg:mt-0 flex gap-4 justify-center lg:justify-end">
+             <div className="flex flex-col items-center gap-2 p-4 bg-background/50 rounded-xl backdrop-blur-sm border shadow-sm">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <Zap className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <span className="text-sm font-medium">极速响应</span>
+             </div>
+             <div className="flex flex-col items-center gap-2 p-4 bg-background/50 rounded-xl backdrop-blur-sm border shadow-sm">
+                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                    <Brain className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                </div>
+                <span className="text-sm font-medium">深度理解</span>
+             </div>
+             <div className="flex flex-col items-center gap-2 p-4 bg-background/50 rounded-xl backdrop-blur-sm border shadow-sm">
+                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+                </div>
+                <span className="text-sm font-medium">精准提取</span>
+             </div>
         </div>
       </div>
 
-      <Tabs defaultValue="upload" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="upload">文档上传</TabsTrigger>
-          <TabsTrigger value="settings">处理设置</TabsTrigger>
-          <TabsTrigger value="queue">处理队列</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="upload" className="space-y-6">
-          {/* Supported Formats */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-primary" />
-                <span>支持的文档格式</span>
-              </CardTitle>
-              <CardDescription>系统支持多种文档格式的智能解析</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {supportedFormats.map((format, index) => (
-                  <div key={index} className="flex items-start space-x-3 p-3 rounded-lg bg-muted/30">
-                    <format.icon className="w-5 h-5 text-primary mt-0.5" />
-                    <div>
-                      <h4 className="font-medium text-foreground">{format.type}</h4>
-                      <p className="text-sm text-muted-foreground">{format.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Upload Area */}
-          <Card>
-            <CardHeader>
-              <CardTitle>上传文档</CardTitle>
-              <CardDescription>拖拽文件到此区域或点击选择文件</CardDescription>
-            </CardHeader>
-            <CardContent>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* 左侧：上传主区域 */}
+        <div className="lg:col-span-7 space-y-6">
+          <Card className="border-2 border-dashed border-muted-foreground/20 shadow-sm hover:border-primary/50 transition-all duration-300">
+            <CardContent className="p-0">
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
-                }`}
+                className={cn(
+                  "flex flex-col items-center justify-center min-h-[400px] p-10 text-center transition-colors rounded-xl",
+                  dragActive ? "bg-primary/5" : "bg-card"
+                )}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
               >
-                <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">上传您的文档</h3>
-                <p className="text-muted-foreground mb-4">支持 PDF、Word 文档等多种格式</p>
+                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-6">
+                  <Upload className="w-10 h-10 text-primary" />
+                </div>
+                <h3 className="text-2xl font-semibold mb-3">点击或拖拽上传文档</h3>
+                <p className="text-muted-foreground max-w-sm mb-8">
+                  文档上传后需在右侧点击“开始解析”
+                </p>
                 <Button
+                  size="lg"
+                  variant="outline"
                   onClick={() => document.getElementById("file-upload")?.click()}
-                  className="bg-primary hover:bg-primary/90"
+                  className="px-8 font-semibold shadow-sm"
                 >
-                  选择文件
+                  选择本地文件
                 </Button>
                 <input
                   id="file-upload"
@@ -329,240 +371,194 @@ export function DocumentUpload() {
                   multiple
                   className="hidden"
                   onChange={(e) => e.target.files && handleFiles(e.target.files)}
-                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword"
                 />
-                <p className="text-xs text-muted-foreground mt-2">最大文件大小: 100MB</p>
               </div>
             </CardContent>
           </Card>
+        </div>
 
-          {/* Uploaded Files */}
-          {uploadedFiles.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>上传的文件</CardTitle>
-                <CardDescription>文件处理状态和结果</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {uploadedFiles.map((file) => {
-                    const FileIcon = getFileIcon(file.type)
-                    return (
-                      <div key={file.id} className="flex items-center space-x-4 p-4 border rounded-lg">
-                        <FileIcon className="w-8 h-8 text-primary" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <h4 className="font-medium text-foreground truncate">{file.name}</h4>
-                            <Button variant="ghost" size="sm" onClick={() => removeFile(file.id)}>
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-2">{formatFileSize(file.size)}</p>
-
-                          <div className="flex items-center space-x-4 mb-2">
-                            {file.status === "uploading" && (
-                              <>
-                                <Clock className="w-4 h-4 text-blue-500" />
-                                <span className="text-sm text-blue-600">上传中...</span>
-                              </>
-                            )}
-                            {file.status === "processing" && (
-                              <>
-                                <Brain className="w-4 h-4 text-yellow-500" />
-                                <span className="text-sm text-yellow-600">AI 解析中...</span>
-                              </>
-                            )}
-                            {file.status === "completed" && (
-                              <>
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                                <span className="text-sm text-green-600">处理完成</span>
-                              </>
-                            )}
-                            {file.status === "error" && (
-                              <>
-                                <AlertCircle className="w-4 h-4 text-red-500" />
-                                <span className="text-sm text-red-600">处理失败</span>
-                              </>
-                            )}
-                          </div>
-
-                          <Progress value={file.progress} className="h-2 mb-2" />
-
-                          {file.status === "completed" && (
-                            <div className="space-y-2">
-                              <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                                <span>实体: {file.extractedEntities}</span>
-                                <span>关系: {file.extractedRelations}</span>
-                                <span>用时: {file.processingTime}</span>
-                              </div>
-
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="settings" className="space-y-6">
-          <Card>
+        {/* 右侧：配置与控制台 - 这里的 UI 做了重大升级 */}
+        <div className="lg:col-span-5 space-y-6">
+          <Card className="flex flex-col h-full border-none shadow-md bg-gradient-to-br from-card to-muted/20">
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Settings className="w-5 h-5 text-primary" />
-                <span>处理模板</span>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-primary" />
+                解析控制台
               </CardTitle>
-              <CardDescription>选择适合您文档类型的预设处理模板</CardDescription>
+              <CardDescription>配置 AI 模型并启动任务</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {processingTemplates.map((template) => (
-                  <div
-                    key={template.id}
-                    className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                      selectedTemplate === template.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                    onClick={() => setSelectedTemplate(template.id)}
+            
+            <CardContent className="flex-1 space-y-6">
+              {/* 模型选择区 */}
+              <div className="space-y-3">
+                 <div className="flex justify-between items-center">
+                    <Label className="text-sm font-medium text-muted-foreground ml-1">选择解析引擎</Label>
+                    {/* 显示计时器 */}
+                    {startTime && (
+                        <Badge variant="outline" className="font-mono text-primary border-primary animate-pulse">
+                            ⏱ {formatTime(elapsedTime)}
+                        </Badge>
+                    )}
+                 </div>
+                 <RadioGroup
+                    value={useLargeModel ? "large" : "small"}
+                    onValueChange={handleModelChange}
+                    className="grid grid-cols-1 gap-3"
+                    // 如果正在处理中，禁用修改模型
+                    disabled={isBatchProcessing} 
                   >
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 ${
-                          selectedTemplate === template.id ? "border-primary bg-primary" : "border-muted-foreground"
-                        }`}
-                      />
-                      <h4 className="font-medium text-foreground">{template.name}</h4>
+                    <div 
+                        className={cn(
+                        "flex items-center justify-between space-x-2 border p-4 rounded-lg cursor-pointer transition-all hover:bg-accent",
+                        !useLargeModel ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-muted"
+                        )}
+                        onClick={() => handleModelChange("small")}
+                    >
+                      <RadioGroupItem value="small" id="model-small" />
+                      <Label htmlFor="model-small" className="flex-1 cursor-pointer">
+                        <div className="flex items-center gap-2 font-semibold">
+                            <Rocket className="w-4 h-4 text-blue-500" /> 极速模式
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">毫秒级响应，适合简单文档</div>
+                      </Label>
                     </div>
-                    <p className="text-sm text-muted-foreground">{template.description}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>抽取设置</CardTitle>
-              <CardDescription>配置信息抽取和知识图谱构建参数</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="entity-extraction"
-                    checked={extractionSettings.enableEntityExtraction}
-                    onCheckedChange={(checked) =>
-                      setExtractionSettings((prev) => ({
-                        ...prev,
-                        enableEntityExtraction: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="entity-extraction">启用实体抽取</Label>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="relation-extraction"
-                    checked={extractionSettings.enableRelationExtraction}
-                    onCheckedChange={(checked) =>
-                      setExtractionSettings((prev) => ({
-                        ...prev,
-                        enableRelationExtraction: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="relation-extraction">启用关系抽取</Label>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="knowledge-graph"
-                    checked={extractionSettings.enableKnowledgeGraph}
-                    onCheckedChange={(checked) =>
-                      setExtractionSettings((prev) => ({
-                        ...prev,
-                        enableKnowledgeGraph: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="knowledge-graph">构建知识图谱</Label>
-                </div>
+                    <div 
+                        className={cn(
+                        "flex items-center justify-between space-x-2 border p-4 rounded-lg cursor-pointer transition-all hover:bg-accent",
+                        useLargeModel ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-muted"
+                        )}
+                        onClick={() => handleModelChange("large")}
+                    >
+                      <RadioGroupItem value="large" id="model-large" />
+                      <Label htmlFor="model-large" className="flex-1 cursor-pointer">
+                        <div className="flex items-center gap-2 font-semibold">
+                            <Brain className="w-4 h-4 text-purple-500" /> 深度解析 (DeepSeek)
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">AI 语义理解，处理复杂表格</div>
+                      </Label>
+                    </div>
+                  </RadioGroup>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confidence">置信度阈值</Label>
-                <Select
-                  value={extractionSettings.confidenceThreshold.toString()}
-                  onValueChange={(value) =>
-                    setExtractionSettings((prev) => ({
-                      ...prev,
-                      confidenceThreshold: Number.parseFloat(value),
-                    }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0.6">0.6 - 较低（更多结果）</SelectItem>
-                    <SelectItem value="0.7">0.7 - 中等</SelectItem>
-                    <SelectItem value="0.8">0.8 - 较高（推荐）</SelectItem>
-                    <SelectItem value="0.9">0.9 - 很高（精确结果）</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="custom-instructions">自定义抽取指令</Label>
-                <Textarea
-                  id="custom-instructions"
-                  placeholder="输入特定的抽取要求或关注点..."
-                  value={extractionSettings.customInstructions}
-                  onChange={(e) =>
-                    setExtractionSettings((prev) => ({
-                      ...prev,
-                      customInstructions: e.target.value,
-                    }))
-                  }
-                  className="min-h-[100px]"
+              {/* 提示词输入 - 带有动画效果 */}
+              <div className={cn(
+                "transition-all duration-500 ease-in-out overflow-hidden space-y-2",
+                useLargeModel ? "max-h-[200px] opacity-100" : "max-h-0 opacity-0"
+              )}>
+                 <Label className="text-xs text-muted-foreground ml-1">自定义 Prompt</Label>
+                 <Textarea
+                  placeholder="输入提示词..."
+                  className="font-mono text-xs bg-background/50 resize-none h-24"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  disabled={isBatchProcessing}
                 />
               </div>
+
             </CardContent>
+
+            {/* 底部：巨大的开始按钮 */}
+            <CardFooter className="pt-2 pb-6">
+                <Button 
+                    size="lg" 
+                    className={cn(
+                        "w-full text-lg h-14 shadow-lg transition-all duration-300",
+                        isBatchProcessing ? "opacity-80" : "hover:scale-[1.02] hover:shadow-primary/25"
+                    )}
+                    onClick={handleStartProcessing}
+                    disabled={readyCount === 0 || isBatchProcessing}
+                >
+                    {isBatchProcessing ? (
+                        <>
+                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                            正在解析 {uploadedFiles.filter(f=>f.status==='processing').length} 个文档...
+                        </>
+                    ) : (
+                        <>
+                            <Play className="mr-2 h-5 w-5 fill-current" />
+                            开始解析 {readyCount > 0 ? `(${readyCount})` : ''}
+                        </>
+                    )}
+                </Button>
+            </CardFooter>
           </Card>
+        </div>
+      </div>
 
-
-        </TabsContent>
-
-        <TabsContent value="queue" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>处理队列状态</CardTitle>
-              <CardDescription>当前系统处理能力和队列状态</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <div className="text-2xl font-bold text-primary">12</div>
-                  <div className="text-sm text-muted-foreground">等待处理</div>
-                </div>
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">3</div>
-                  <div className="text-sm text-muted-foreground">正在处理</div>
-                </div>
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">847</div>
-                  <div className="text-sm text-muted-foreground">已完成</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* 底部文件列表 - 状态展示优化 */}
+      {uploadedFiles.length > 0 && (
+        <div ref={fileListRef} className="space-y-4 pt-4 border-t animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                文档列表
+            </h3>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {uploadedFiles.map((file) => (
+                    <Card key={file.id} className={cn(
+                        "group relative overflow-hidden transition-all duration-500",
+                        file.status === 'processing' ? "ring-2 ring-primary/20 shadow-lg scale-[1.02] bg-primary/5" : "hover:shadow-md bg-card/50"
+                    )}>
+                        {/* 背景流光动画 */}
+                        {file.status === 'processing' && (
+                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/5 to-transparent -skew-x-12 translate-x-[-200%] animate-[shimmer_1.5s_infinite]" />
+                        )}
+                        
+                        <CardContent className="p-4 flex items-start gap-3 relative z-10">
+                            {/* 图标根据状态变化 */}
+                            <div className={cn("p-2 rounded-xl transition-all duration-300 shadow-sm", 
+                                file.status === 'ready' ? "bg-blue-500/10 text-blue-600" : 
+                                file.status === 'processing' ? "bg-primary/10 text-primary scale-110" : 
+                                file.status === 'completed' ? "bg-green-500/10 text-green-600" :
+                                "bg-muted text-muted-foreground"
+                            )}>
+                                {file.status === 'processing' ? (
+                                    <Loader2 className="w-6 h-6 animate-spin" />
+                                ) : file.status === 'ready' ? (
+                                    <CheckCircle className="w-6 h-6" />
+                                ) : file.status === 'completed' ? (
+                                    <CheckCircle className="w-6 h-6" />
+                                ) : (
+                                    <FileText className="w-6 h-6" />
+                                )}
+                            </div>
+                            
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex justify-between items-start">
+                                    <p className="font-medium truncate pr-2 text-sm" title={file.name}>{file.name}</p>
+                                    <button onClick={() => removeFile(file.id)} className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all duration-200">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+                                    
+                                    {/* 状态徽章 */}
+                                    {file.status === "uploading" && <Badge variant="outline" className="text-[10px] h-5">上传中...</Badge>}
+                                    {file.status === "ready" && <Badge className="bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 border-blue-200/50 text-[10px] h-5 shadow-none">等待解析</Badge>}
+                                    {file.status === "processing" && <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] h-5 shadow-none animate-pulse">解析中 {file.progress}%</Badge>}
+                                    {file.status === "completed" && <Badge className="bg-green-500/10 text-green-700 border-green-200/50 text-[10px] h-5 shadow-none">已完成</Badge>}
+                                    {file.status === "error" && <Badge variant="destructive" className="text-[10px] h-5">失败</Badge>}
+                                </div>
+                                
+                                {/* 进度条：只在处理中或上传中显示 */}
+                                <div className={cn(
+                                    "h-1 w-full bg-muted rounded-full overflow-hidden transition-all duration-300",
+                                    (file.status === "processing" || file.status === "uploading") ? "opacity-100 mt-2" : "opacity-0 h-0 mt-0"
+                                )}>
+                                    <div 
+                                        className="h-full bg-primary transition-all duration-300 ease-out"
+                                        style={{ width: `${file.progress}%` }}
+                                    />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        </div>
+      )}
     </div>
   )
 }

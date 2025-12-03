@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const bare = pathname?.startsWith("/excel-editor") ?? false
+  const bare = (pathname?.startsWith("/excel-editor") || pathname?.startsWith("/word-editor")) ?? false
 
   if (bare) {
     return <>{children}</>

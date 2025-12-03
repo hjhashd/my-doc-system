@@ -17,7 +17,7 @@
   --popover-foreground: oklch(0.35 0.04 15);
 
   /* 核心主色：烟粉色 - 明显但不刺眼 */
-  --primary: oklch(0.65 0.16 15);     /* 优雅的玫瑰粉/豆沙红 */
+  --primary: oklch(0.55 0.20 15);     /* 加深玫瑰粉/豆沙红，使其更鲜艳 */
   --primary-foreground: oklch(1 0 0); /* 按钮文字白色 */
 
   --secondary: oklch(0.96 0.02 15);   /* 次级背景：极淡的粉灰色 */

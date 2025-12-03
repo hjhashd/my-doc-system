@@ -16,8 +16,9 @@ export async function POST(req: NextRequest) {
     const pythonServiceUrl = process.env.PYTHON_PIPELINE_SERVICE_URL || 'http://192.168.3.10:8005'
     
     // 构造 Docker 映射路径 (和之前保持一致)
+    // Python 脚本里会自动拼接 agentUserId，所以我们这里不需要在路径中包含 agentUserId
     const baseUploadPath = '/home/cqj/my-doc-system-uploads/save'
-    const pythonInputPath = `${baseUploadPath}/${agentUserId}`
+    const pythonInputPath = baseUploadPath
 
     const payload = {
       file_name: fileName,

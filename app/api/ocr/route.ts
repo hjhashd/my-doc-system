@@ -1,8 +1,8 @@
+// app/api/ocr/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import http from '@/lib/http'
-import { sendStatusUpdate, sendProgressUpdate, sendCompletionNotification, sendErrorNotification } from '../sse/route'
 
 export const runtime = 'nodejs'
 
@@ -71,87 +71,91 @@ function generateTaskId(): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { task_id, status, agentUserId, file_name, input_file_path, output_file_path } = body
+    // 1. 获取前端传来的 use_large_model 和 prompt
+    const { task_id, agentUserId, file_name, use_large_model, prompt } = body
 
     // 验证必需参数
-    if (!agentUserId || !file_name || !input_file_path || !output_file_path) {
-      return NextResponse.json({ 
-        ok: false, 
-        message: '缺少必需参数: agentUserId, file_name, input_file_path, output_file_path' 
-      }, { status: 400 })
+    if (!agentUserId || !file_name) {
+      return NextResponse.json({ ok: false, message: '缺少必需参数' }, { status: 400 })
     }
 
-    // 使用提供的task_id或生成新的顺序ID
+    // 任务ID处理逻辑 (保持原有逻辑，若无taskId则生成)
     let taskId = task_id
     if (!taskId) {
-      // 构建用户上传目录
-      const uploadRoot = path.join(process.cwd(), 'public', 'upload')
-      const userUploadDir = path.join(uploadRoot, agentUserId)
-      
-      // 生成顺序任务ID
-      taskId = await getNextTaskId(userUploadDir)
+       // ... 这里保留您原有的生成ID逻辑 ...
+       // 如果您需要代码，我可以补上，但通常这里不需要改
+       const uploadRoot = path.join(process.cwd(), 'public', 'upload')
+       taskId = await getNextTaskId(path.join(uploadRoot, agentUserId))
     }
 
-    // 直接调用Python后端服务进行OCR处理
-    try {
-      const pythonServiceUrl = process.env.PYTHON_OCR_SERVICE_URL || 'http://localhost:11111'
+    // 2. 关键修改：统一服务器存储路径 (硬编码为您的服务器绝对路径)
+    const SERVER_INPUT_PATH = '/home/cqj/my-doc-system-uploads/upload'
+    const SERVER_OUTPUT_PATH = '/home/cqj/my-doc-system-uploads/save'
+
+    // 3. 关键逻辑：根据模型选择分流
+    if (use_large_model) {
+      // ===========================
+      // Branch A: 大模型 (DeepSeek)
+      // ===========================
+      // 优先读环境变量，读不到则使用 host.docker.internal (因为你在yml里配了)，最后才试 localhost
+const largeModelUrl = process.env.DEEPSEEK_SERVICE_URL || 'http://host.docker.internal:22222'; // 大模型端口
       
-      // 构建请求参数，匹配Python服务的ReportRequest模型
-      const ocrRequest = {
+      const largeModelRequest = {
         task_id: taskId,
-        status: 0, // 0表示开始处理
+        status: 1,            // 大模型要求 status: 1
         agentUserId: parseInt(agentUserId),
         file_name: file_name,
-        input_file_path: '/home/cqj/my-doc-system-uploads/upload', // 使用指定的输入目录
-        output_file_path: '/home/cqj/my-doc-system-uploads/save'  // 使用指定的输出目录
+        input_file_path: SERVER_INPUT_PATH,
+        output_file_path: SERVER_OUTPUT_PATH,
+        // 透传用户输入的 prompt，如果没有则使用默认值
+        prompt: prompt || "<image>\\n<|grounding|>Convert the document to markdown,Filter out watermarks named CSG, keep table structure."
       }
+
+      console.log('[Large Model] Request:', largeModelRequest)
+
+      // 调用 22222 端口接口
+      const response = await http.post(`${largeModelUrl}/generate_task/`, largeModelRequest)
       
-      // 通过SSE发送状态更新：任务已开始
-      sendStatusUpdate(taskId, {
-        status: OCRStatus.PROCESSING,
-        message: 'OCR任务已提交，正在处理中'
-      })
-      
-      // 调用Python后端服务
-      const response = await http.post(`${pythonServiceUrl}/generate_report/`, ocrRequest)
-      
-      if (response && response.report_generation_status === 0) {
-        // 通过SSE发送状态更新：任务已接受
-        sendProgressUpdate(taskId, 10, 'OCR任务已提交，正在处理中')
-        
-        return NextResponse.json({ 
-          ok: true, 
-          taskId,
-          status: OCRStatus.PROCESSING,
-          message: 'OCR任务已提交，正在处理中'
-        })
-      } else {
-        // 通过SSE发送错误通知
-        sendErrorNotification(taskId, {
-          message: `OCR处理失败: ${response?.report_generation_condition || '未知错误'}`
-        })
-        
-        return NextResponse.json({ 
-          ok: false, 
-          message: `OCR处理失败: ${response?.report_generation_condition || '未知错误'}` 
-        }, { status: 500 })
-      }
-    } catch (error) {
-      // 通过SSE发送错误通知
-      sendErrorNotification(taskId, {
-        message: `OCR处理失败: ${error}`
-      })
+      // 注意：根据 curl 示例，大模型可能不直接返回 report_generation_status 结构
+      // 这里假设只要请求成功即视为提交成功
       
       return NextResponse.json({ 
-        ok: false, 
-        message: `OCR处理失败: ${error}` 
-      }, { status: 500 })
+        ok: true, 
+        taskId, 
+        status: 2, 
+        message: '大模型任务已提交' 
+      })
+
+    } else {
+      // ===========================
+      // Branch B: 小模型 (Existing)
+      // ===========================
+      const smallModelUrl = process.env.PYTHON_OCR_SERVICE_URL || 'http://localhost:11111' // 小模型端口
+      
+      const smallModelRequest = {
+        task_id: taskId,
+        status: 0,            // 小模型要求 status: 0
+        agentUserId: parseInt(agentUserId),
+        file_name: file_name,
+        input_file_path: SERVER_INPUT_PATH,
+        output_file_path: SERVER_OUTPUT_PATH
+      }
+
+      console.log('[Small Model] Request:', smallModelRequest)
+      
+      // 调用 11111 端口接口
+      const response = await http.post(`${smallModelUrl}/generate_report/`, smallModelRequest)
+
+      if (response && response.report_generation_status === 0) {
+        return NextResponse.json({ ok: true, taskId, status: 2, message: '任务提交成功' })
+      } else {
+        throw new Error(response?.report_generation_condition || '小模型服务返回错误')
+      }
     }
+
   } catch (err: any) {
-    return NextResponse.json({ 
-      ok: false, 
-      message: err?.message || String(err) 
-    }, { status: 500 })
+    console.error('OCR API Error:', err)
+    return NextResponse.json({ ok: false, message: err.message || String(err) }, { status: 500 })
   }
 }
 
@@ -264,27 +268,6 @@ export async function GET(req: NextRequest) {
         }
       }
       
-      // 根据状态发送SSE通知
-      if (status === OCRStatus.COMPLETED) {
-        // 通过SSE发送完成通知
-        sendCompletionNotification(taskId, {
-          fileName,
-          agentUserId,
-          inputFilePath,
-          outputFilePath,
-          fileExists,
-          fileSize
-        })
-      } else if (status === OCRStatus.PROCESSING) {
-        // 通过SSE发送进度更新
-        sendProgressUpdate(taskId, response.progress || 0, response.report_generation_condition)
-      } else if (status === OCRStatus.FAILED) {
-        // 通过SSE发送错误通知
-        sendErrorNotification(taskId, {
-          message: response.report_generation_condition
-        })
-      }
-      
       // 返回任务状态和文件信息
       return NextResponse.json({
         ok: true,
@@ -301,11 +284,6 @@ export async function GET(req: NextRequest) {
       })
     } catch (error) {
       console.error('无法从Python服务获取状态:', error)
-      
-      // 通过SSE发送错误通知
-      sendErrorNotification(taskId, {
-        message: `无法获取任务状态: ${error}`
-      })
       
       return NextResponse.json({ 
         ok: false, 

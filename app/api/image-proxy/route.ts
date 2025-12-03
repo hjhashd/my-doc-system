@@ -1,60 +1,87 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server'
+import fs from 'fs'
+import path from 'path'
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  let path = searchParams.get('path');
-  
-  if (!path) {
-    return NextResponse.json({ error: 'Path parameter is required' }, { status: 400 });
-  }
-  
-  try {
-    // 处理不同的路径前缀
-    if (path.startsWith('/my-doc-system-uploads/')) {
-      path = path.replace('/my-doc-system-uploads', '/public');
-    }
-    
-    // 构建完整的文件路径
-    const fs = require('fs');
-    const fullPath = `/app${path}`;
-    
-    // 检查文件是否存在
-    if (!fs.existsSync(fullPath)) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 });
-    }
-    
-    // 读取文件
-    const fileBuffer = fs.readFileSync(fullPath);
-    
-    // 获取文件扩展名以确定MIME类型
-    const ext = path.split('.').pop()?.toLowerCase();
-    let contentType = 'application/octet-stream';
-    
-    switch (ext) {
-      case 'png':
-        contentType = 'image/png';
-        break;
-      case 'jpg':
-      case 'jpeg':
-        contentType = 'image/jpeg';
-        break;
-      case 'gif':
-        contentType = 'image/gif';
-        break;
-      case 'webp':
-        contentType = 'image/webp';
-        break;
-    }
-    
-    // 返回图片数据
-    return new NextResponse(fileBuffer, {
-      headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400', // 缓存1天
-      },
-    });
-  } catch (error) {
-    console.error('Error serving image:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+export const runtime = 'nodejs'
+
+function getContentType(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  switch (ext) {
+    case '.png': return 'image/png'
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.webp': return 'image/webp'
+    case '.gif': return 'image/gif'
+    case '.svg': return 'image/svg+xml'
+    default: return 'application/octet-stream'
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url)
+    const raw = url.searchParams.get('path') || ''
+    if (!raw) {
+      return NextResponse.json({ ok: false, message: '缺少参数: path' }, { status: 400 })
+    }
+
+    const BASE_PREFIX_A = '/my-doc-system-uploads/save'
+    const BASE_PREFIX_B = '/home/cqj/my-doc-system-uploads/save'
+    const CONTAINER_PREFIX = '/app/public/save'
+
+    let absPath = raw.trim()
+    
+    // 自动将宿主机路径映射到容器路径
+    if (absPath.startsWith(BASE_PREFIX_A)) {
+      // /my-doc-system-uploads/save/... -> /app/public/save/...
+      absPath = absPath.replace(BASE_PREFIX_A, CONTAINER_PREFIX)
+    } else if (absPath.startsWith(BASE_PREFIX_B)) {
+      // /home/cqj/my-doc-system-uploads/save/... -> /app/public/save/...
+      absPath = absPath.replace(BASE_PREFIX_B, CONTAINER_PREFIX)
+    } else if (absPath.startsWith(CONTAINER_PREFIX)) {
+       // 已经是容器路径，不做处理
+    } else {
+       // 尝试自动补全
+       absPath = path.join(CONTAINER_PREFIX, absPath)
+    }
+
+    // 处理 URL 编码问题，确保中文文件名能被正确识别
+    absPath = decodeURIComponent(absPath)
+
+
+    const normalized = path.normalize(absPath)
+    const allowedBase = CONTAINER_PREFIX
+
+    console.log('[ImageProxy] Request:', {
+      original: raw,
+      absPath,
+      normalized,
+      exists: fs.existsSync(normalized)
+    })
+
+    if (!normalized.startsWith(allowedBase)) {
+      console.error('[ImageProxy] Invalid path:', normalized, 'Allowed:', allowedBase)
+      return NextResponse.json({ ok: false, message: '非法路径' }, { status: 400 })
+    }
+
+    try {
+        await fs.promises.access(normalized, fs.constants.R_OK)
+    } catch (accessErr) {
+        console.error('[ImageProxy] File access failed:', normalized, accessErr)
+        return NextResponse.json({ ok: false, message: '文件不存在 or 无法访问' }, { status: 404 })
+    }
+
+    const buf = await fs.promises.readFile(normalized)
+    const ct = getContentType(normalized)
+    return new NextResponse(buf, {
+      headers: {
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=60'
+      }
+    })
+  } catch (err: any) {
+    console.error('[ImageProxy] Unexpected error:', err)
+    return NextResponse.json({ ok: false, message: err?.message || String(err) }, { status: 500 })
+  }
+}
+

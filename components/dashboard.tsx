@@ -148,7 +148,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-sm text-card-foreground">Dolphin 解析引擎</span>
+                <span className="text-sm text-card-foreground">DeepSeek-OCR解析引擎</span>
               </div>
               <Badge variant="secondary" className="bg-green-100 text-green-800">
                 正常
@@ -157,7 +157,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-sm text-card-foreground">LangExtract 引擎</span>
+                <span className="text-sm text-card-foreground">大模型抽取引擎</span>
               </div>
               <Badge variant="secondary" className="bg-green-100 text-green-800">
                 正常

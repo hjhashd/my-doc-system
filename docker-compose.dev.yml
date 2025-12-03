@@ -7,14 +7,16 @@ services:
       dockerfile: Dockerfile.dev
     container_name: doc-system-dev-container
     ports:
-      - "127.0.0.1:3001:3001"
+      - "3001:3001"
     environment:
       - PORT=3001
       - NODE_ENV=development
+      - DOCKER_ENV=true
       # 使用IP地址访问，确保OnlyOffice可以正常工作
       - NEXT_PUBLIC_BASE_URL=http://192.168.3.10:10043
       - NEXT_PUBLIC_DS_BASE_URL=http://192.168.3.10:10043
       - PYTHON_OCR_SERVICE_URL=http://192.168.3.10:11111
+      - DEEPSEEK_SERVICE_URL=http://192.168.3.10:22222
     volumes:
       # 挂载源代码，实现热重载
       - .:/app
@@ -23,6 +25,10 @@ services:
       # 挂载上传目录
       - /home/cqj/my-doc-system-uploads/upload:/app/public/upload
       - /home/cqj/my-doc-system-uploads/save:/app/public/save
+      # 挂载数据目录，用于Schema和Extraction输出
+      # 宿主机路径: /root/zzp/langextract-main/zzpextract/
+      # 容器内路径: /app/data/
+      - /root/zzp/langextract-main/zzpextract:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
