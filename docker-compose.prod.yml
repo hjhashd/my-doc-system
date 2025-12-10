@@ -7,21 +7,51 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_BASE_URL=http://192.168.3.10:10043
-        - NEXT_PUBLIC_DS_BASE_URL=http://host.docker.internal:10043
+        - NEXT_PUBLIC_DS_BASE_URL=http://192.168.3.10:10043
     container_name: doc-system-container
     ports:
-      - "127.0.0.1:3001:3001"
+      - "3001:3000"  # 宿主机3001端口映射到容器3000端口
     environment:
-      - PORT=3001
+      - PORT=3000  # 容器内部端口，保持3000与Dockerfile一致
       - NODE_ENV=production
+      - DOCKER_ENV=true
       - NEXT_PUBLIC_BASE_URL=http://192.168.3.10:10043
-      - NEXT_PUBLIC_DS_BASE_URL=http://host.docker.internal:10043
+      - NEXT_PUBLIC_DS_BASE_URL=http://192.168.3.10:10043
       - BASE_URL=http://192.168.3.10:10043
-      - DS_BASE_URL=http://host.docker.internal:10043
+      - DS_BASE_URL=http://192.168.3.10:10043
+      - PYTHON_OCR_SERVICE_URL=http://192.168.3.10:11111
+      - DEEPSEEK_SERVICE_URL=http://192.168.3.10:22222
     volumes:
       # 挂载上传目录
       - /home/cqj/my-doc-system-uploads/upload:/app/public/upload
       - /home/cqj/my-doc-system-uploads/save:/app/public/save
+      # 挂载数据目录，用于Schema和Extraction输出
+      - /root/zzp/langextract-main/zzpextract:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always
+
+  # 以下服务暂时注释掉，待实现后再启用
+  # # OCR 服务
+  # ocr-service:
+  #   image: python:3.9-slim
+  #   container_name: ocr-service-container
+  #   ports:
+  #     - "11111:11111"
+  #   volumes:
+  #     - ./services/ocr:/app
+  #   working_dir: /app
+  #   command: python -m uvicorn main:app --host 0.0.0.0 --port 11111
+  #   restart: always
+
+  # # DeepSeek 服务
+  # deepseek-service:
+  #   image: python:3.9-slim
+  #   container_name: deepseek-service-container
+  #   ports:
+  #     - "22222:22222"
+  #   volumes:
+  #     - ./services/deepseek:/app
+  #   working_dir: /app
+  #   command: python -m uvicorn main:app --host 0.0.0.0 --port 22222
+  #   restart: always

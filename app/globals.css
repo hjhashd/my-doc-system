@@ -67,17 +67,17 @@
   --popover: oklch(0.18 0.03 15);
   --popover-foreground: oklch(0.95 0.02 15);
 
-  --primary: oklch(0.75 0.14 15);     /* 暗模式下主色稍微提亮，确保可见 */
-  --primary-foreground: oklch(0.20 0.05 15);
+  --primary: oklch(0.72 0.14 15);
+  --primary-foreground: oklch(0.98 0 0);
 
-  --secondary: oklch(0.25 0.04 15);
-  --secondary-foreground: oklch(0.90 0.02 15);
+  --secondary: oklch(0.22 0.04 15);
+  --secondary-foreground: oklch(0.96 0.02 15);
 
-  --muted: oklch(0.25 0.02 15);
-  --muted-foreground: oklch(0.70 0.04 15);
+  --muted: oklch(0.22 0.02 15);
+  --muted-foreground: oklch(0.80 0.03 15);
 
-  --accent: oklch(0.25 0.04 15);
-  --accent-foreground: oklch(0.90 0.02 15);
+  --accent: oklch(0.24 0.04 15);
+  --accent-foreground: oklch(0.96 0.02 15);
 
   --destructive: oklch(0.5 0.2 25);
   --destructive-foreground: oklch(0.95 0 0);

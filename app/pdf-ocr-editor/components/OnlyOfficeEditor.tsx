@@ -163,7 +163,10 @@ export function OnlyOfficeEditor({
               },
               spellcheck: false,
               autosave: false,
-              plugins: false
+              plugins: false,
+              // 允许运行宏/脚本，以便我们的 javascript: 链接能生效
+              macros: true,
+              macrosMode: 'warn' 
             }
           },
           height: '100%',

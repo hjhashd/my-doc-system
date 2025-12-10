@@ -13,6 +13,8 @@ interface OverviewTabProps {
   parsingStatusText?: string;
   statistics?: DocumentStatistics | null;
   statisticsLoading?: boolean;
+  // 新增：是否已完成智能解析
+  isSmartParsingCompleted?: boolean;
 }
 
 export function OverviewTab({ 
@@ -21,7 +23,8 @@ export function OverviewTab({
   parsingProgress = 0, 
   parsingStatusText = "",
   statistics = null,
-  statisticsLoading = false
+  statisticsLoading = false,
+  isSmartParsingCompleted = false
 }: OverviewTabProps) {
   if (!doc) return <div className="text-center py-10 text-muted-foreground">请先选择一个文档</div>
 
@@ -81,7 +84,10 @@ export function OverviewTab({
                   {isParsing ? "正在处理" : doc.status === "completed" ? "解析完成" : doc.status === "processing" ? "正在处理" : "等待处理"}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {isParsing ? parsingStatusText : "耗时: 12.5s"}
+                  {isParsing ? parsingStatusText : 
+                   (statistics && statistics.processing_time_seconds && isSmartParsingCompleted) ? 
+                     `耗时: ${statistics.processing_time_seconds}s` : 
+                     doc.status === "completed" ? "处理完成" : "等待处理"}
                 </div>
               </div>
             </div>

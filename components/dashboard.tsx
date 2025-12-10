@@ -80,7 +80,7 @@ export function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">智能文档知识工程系统</h1>
-          <p className="text-muted-foreground mt-1">基于 LangExtract 和 Dolphin 的文档分析与知识管理平台</p>
+          <p className="text-muted-foreground mt-1">基于 LangExtract 和 OCR 的文档分析与知识管理平台</p>
         </div>
         <Badge variant="outline" className="bg-accent/10 text-accent-foreground border-accent/20">
           系统运行正常

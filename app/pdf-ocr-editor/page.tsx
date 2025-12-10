@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { FileText, RefreshCw, AlertCircle, Edit3 } from "lucide-react"
+import { FileText, RefreshCw, AlertCircle, Edit3, X, Maximize2, Minimize2, List, Image as ImageIcon, Table } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -16,9 +16,15 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import http from '@/lib/http'
+import { feedback } from "@/lib/feedback"
 import { OnlyOfficeEditor as OnlyOfficeEditorComponent } from "./components/OnlyOfficeEditor"
 import { PDFViewer } from "./components/PDFViewer"
+import { ExcelPreview } from "./components/ExcelPreview"
+import { ImagePreview } from "./components/ImagePreview"
 import { HeaderBar } from "./components/HeaderBar"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Separator } from "@/components/ui/separator"
 
 export default function PDFOCREditorPage() {
   const searchParams = useSearchParams()
@@ -37,6 +43,15 @@ export default function PDFOCREditorPage() {
   const [leftEditor, setLeftEditor] = useState<any>(null)
   const [rightEditor, setRightEditor] = useState<any>(null)
 
+  // 预览面板状态
+  const [previewPanelOpen, setPreviewPanelOpen] = useState(false)
+  const [previewData, setPreviewData] = useState<{type: 'image' | 'table', url: string, name: string} | null>(null)
+  
+  // 资源列表状态
+  const [resourceList, setResourceList] = useState<{images: any[], tables: any[]}>({ images: [], tables: [] })
+  const [isResourcesLoading, setIsResourcesLoading] = useState(false)
+  const [resourcePanelOpen, setResourcePanelOpen] = useState(false)
+
   // 重命名相关状态
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false)
   const [customFileName, setCustomFileName] = useState("")
@@ -47,6 +62,93 @@ export default function PDFOCREditorPage() {
 
   const isPdf = fileData.fileName.toLowerCase().endsWith('.pdf')
   const isPdfFile = fileData.fileUrl.toLowerCase().includes('.pdf')
+
+  // 获取资源列表
+  const fetchResources = async () => {
+      const agentUserId = searchParams.get('agentUserId')
+      const taskId = searchParams.get('taskId')
+      if (!agentUserId || !taskId) return
+      
+      setIsResourcesLoading(true)
+      try {
+          // 修改为调用 Next.js 自己的 API 路由
+          const res = await http.get(`/api/resources?agentUserId=${agentUserId}&taskId=${taskId}`)
+          if (res) {
+              setResourceList({
+                  images: res.images || [],
+                  tables: res.tables || []
+              })
+          }
+      } catch (error) {
+          console.error("Failed to fetch resources:", error)
+      } finally {
+          setIsResourcesLoading(false)
+      }
+  }
+
+  // 监听来自 OnlyOffice 的消息
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // 验证来源安全性等...
+      const data = event.data;
+      if (data && typeof data === 'object') {
+        if (data.type === 'preview_image' || data.type === 'preview_table') {
+           console.log('收到预览请求:', data);
+           setPreviewData({
+             type: data.type === 'preview_image' ? 'image' : 'table',
+             url: data.url,
+             name: data.name
+           });
+           setPreviewPanelOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  // 文档加载成功后获取资源列表
+  useEffect(() => {
+      if (docUrl && !isLoading && !isPolling) {
+          fetchResources()
+      }
+  }, [docUrl, isLoading, isPolling])
+
+  // 处理资源点击
+  const handleResourceClick = (item: any, type: 'image' | 'table') => {
+      // 1. 打开预览并关闭资源列表侧边栏
+      setPreviewData({
+          type: type,
+          url: item.url,
+          name: item.name
+      })
+      setPreviewPanelOpen(true)
+      setResourcePanelOpen(false) // 自动关闭资源列表侧边栏
+      
+      // 2. 尝试跳转 PDF (根据文件名解析页码)
+      // 假设图片命名规则是: XA_certificate_0_layout_det_res_1.png
+      // 其中 0 是页码索引
+      try {
+          const match = item.name.match(/_(\d+)_layout_det_res/);
+          if (match && match[1] && leftEditor) {
+             // PDFViewer 暴露的 window.Api 可能不同，这里假设 leftEditor 是 iframe 的 contentWindow
+             // 需要确认 PDFViewer 组件是否正确暴露了跳转方法
+             // 这里复用之前的联动逻辑中的调用方式
+             const pageIndex = parseInt(match[1]);
+             if (!isNaN(pageIndex) && leftEditor.Api && typeof leftEditor.Api.asc_moveToPage === 'function') {
+                 // 注意：OnlyOffice 的 PDF 预览可能不支持 moveToPage，这里假设左侧是 PDF.js 或类似
+                 // 如果左侧是 OnlyOffice PDF Viewer，API 应该是 asc_moveToPage
+                 // 如果是自定义 PDFViewer，可能需要通过 postMessage 或其他方式
+                 
+                 // 修正：之前的联动逻辑显示 leftWindow.Api.asc_moveToPage(pdfIndex)
+                 leftEditor.Api.asc_moveToPage(pageIndex);
+             }
+          }
+      } catch (e) {
+          console.error("跳转失败", e)
+      }
+  }
 
   // 处理文件名，确保显示原始文件名
   const getOriginalFileName = (fileName: string): string => {
@@ -133,6 +235,9 @@ export default function PDFOCREditorPage() {
     
     // 自动收起侧边栏
     const timer = setTimeout(() => {
+       // 检查当前侧边栏状态，如果未收起则触发收起
+       // 注意：这里无法直接获取最新的 sidebarCollapsed 状态，所以我们总是触发一次 toggleSidebar 事件
+       // 更好的做法是在 Layout 中控制，或者在这里直接发事件
        window.dispatchEvent(new CustomEvent('toggleSidebar'))
     }, 100)
 
@@ -208,6 +313,7 @@ export default function PDFOCREditorPage() {
                 
                 setIsPolling(false)
                 setIsLoading(false)
+                feedback.success('文档加载成功')
                 return
               } 
               
@@ -216,22 +322,28 @@ export default function PDFOCREditorPage() {
                 if (attempts < maxAttempts) {
                   setTimeout(poll, 3000)
                 } else {
-                  setApiError('文档处理超时，请检查后端服务')
+                  const errorMsg = '文档处理超时，请检查后端服务'
+                  setApiError(errorMsg)
                   setIsPolling(false)
                   setIsLoading(false)
+                  feedback.error(errorMsg)
                 }
               } else {
-                setApiError(res?.message || '获取文档失败')
+                const errorMsg = res?.message || '获取文档失败'
+                setApiError(errorMsg)
                 setIsPolling(false)
                 setIsLoading(false)
+                feedback.error(errorMsg)
               }
             } catch (err) {
               console.error('轮询失败:', err)
               if (attempts < maxAttempts) setTimeout(poll, 3000)
               else {
-                setApiError('网络连接不稳定，请重试')
+                const errorMsg = '网络连接不稳定，请重试'
+                setApiError(errorMsg)
                 setIsPolling(false)
                 setIsLoading(false)
+                feedback.error(errorMsg)
               }
             }
           }
@@ -242,11 +354,13 @@ export default function PDFOCREditorPage() {
           const isOffice = ['.docx', '.xlsx', '.pptx'].some(ext => finalFileName.toLowerCase().endsWith(ext))
           setViewMode(isOffice ? 'editor' : 'split')
           setIsLoading(false)
+          feedback.success('文档加载成功')
         }
       } catch (err) {
         console.error('加载失败:', err)
         setApiError('初始化失败')
         setIsLoading(false)
+        feedback.error('初始化失败')
       }
     }
 
@@ -278,14 +392,15 @@ export default function PDFOCREditorPage() {
       })
 
       if (res.ok) {
+        feedback.success('重命名成功')
         router.push(`/parsing?agentUserId=${encodeURIComponent(agentUserId)}`)
       } else {
-        alert('重命名失败: ' + res.message)
+        feedback.error('重命名失败: ' + res.message)
         setIsRenaming(false)
       }
     } catch (error) {
       console.error('Rename failed', error)
-      alert('重命名请求出错')
+      feedback.error('重命名请求出错')
       setIsRenaming(false)
     }
   }
@@ -513,7 +628,178 @@ export default function PDFOCREditorPage() {
             </div>
           )}
         </div>
+        
+        {/* 资源列表侧边按钮 (固定在右下角) */}
+        {/* 修复：确保按钮始终可见，增加 z-index 并调整位置 */}
+        {viewMode === 'split' && (
+            <div className={`fixed bottom-8 transition-all duration-300 z-30 ${sidebarCollapsed ? 'right-8' : 'right-8'}`}>
+                <Button 
+                    size="lg" 
+                    className="shadow-xl rounded-full h-14 px-6 bg-slate-800 hover:bg-slate-700 text-white gap-2 transition-all duration-300 animate-in zoom-in duration-300"
+                    onClick={() => setResourcePanelOpen(true)}
+                >
+                    <List className="w-5 h-5" />
+                    <span className="font-medium">文档资源 ({resourceList.images.length + resourceList.tables.length})</span>
+                </Button>
+            </div>
+        )}
       </main>
+      
+      {/* 资源列表侧边栏 */}
+      {resourcePanelOpen && (
+          <div className="fixed inset-y-0 right-0 w-[320px] bg-white shadow-2xl z-50 border-l animate-in slide-in-from-right duration-300 flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-slate-50">
+                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                    <List className="w-5 h-5 text-slate-500" />
+                    文档提取资源
+                </h3>
+                <Button variant="ghost" size="icon" onClick={() => setResourcePanelOpen(false)}>
+                    <X className="w-5 h-5 text-slate-500" />
+                </Button>
+              </div>
+              
+              <Tabs defaultValue="tables" className="flex-1 flex flex-col overflow-hidden">
+                  <div className="px-4 pt-2">
+                      <TabsList className="w-full grid grid-cols-2">
+                          <TabsTrigger value="tables" className="gap-2">
+                              <Table className="w-4 h-4" /> 表格 ({resourceList.tables.length})
+                          </TabsTrigger>
+                          <TabsTrigger value="images" className="gap-2">
+                              <ImageIcon className="w-4 h-4" /> 图片 ({resourceList.images.length})
+                          </TabsTrigger>
+                      </TabsList>
+                  </div>
+                  
+                  <TabsContent value="tables" className="flex-1 overflow-hidden p-0 mt-2">
+                      <ScrollArea className="h-full">
+                          <div className="p-4 space-y-3">
+                              {resourceList.tables.length > 0 ? (
+                                  resourceList.tables.map((table, index) => (
+                                      <div 
+                                          key={index} 
+                                          className="p-3 border rounded-lg hover:bg-slate-50 hover:border-blue-300 cursor-pointer transition-all group"
+                                          onClick={() => handleResourceClick(table, 'table')}
+                                      >
+                                          <div className="flex items-start gap-3">
+                                              <div className="w-10 h-10 bg-green-50 rounded-md flex items-center justify-center shrink-0 text-green-600">
+                                                  <Table className="w-6 h-6" />
+                                              </div>
+                                              <div className="flex-1 min-w-0">
+                                                  <p className="text-sm font-medium text-slate-700 truncate mb-1" title={table.name}>{table.name}</p>
+                                                  <p className="text-xs text-slate-400 truncate">点击预览并定位</p>
+                                              </div>
+                                          </div>
+                                      </div>
+                                  ))
+                              ) : (
+                                  <div className="text-center py-12 text-slate-400 text-sm">
+                                      <Table className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                      暂无提取的表格
+                                  </div>
+                              )}
+                          </div>
+                      </ScrollArea>
+                  </TabsContent>
+                  
+                  <TabsContent value="images" className="flex-1 overflow-hidden p-0 mt-2">
+                      <ScrollArea className="h-full">
+                          <div className="p-4 space-y-3">
+                              {resourceList.images.length > 0 ? (
+                                  resourceList.images.map((img, index) => (
+                                      <div 
+                                          key={index} 
+                                          className="p-3 border rounded-lg hover:bg-slate-50 hover:border-blue-300 cursor-pointer transition-all group"
+                                          onClick={() => handleResourceClick(img, 'image')}
+                                      >
+                                          <div className="flex items-start gap-3">
+                                              <div className="w-16 h-16 bg-slate-100 rounded-md overflow-hidden shrink-0 border">
+                                                  <img src={img.url} className="w-full h-full object-cover" alt="" />
+                                              </div>
+                                              <div className="flex-1 min-w-0 py-1">
+                                                  <p className="text-sm font-medium text-slate-700 truncate mb-1" title={img.name}>{img.name}</p>
+                                                  <p className="text-xs text-slate-400 truncate">点击预览并定位</p>
+                                              </div>
+                                          </div>
+                                      </div>
+                                  ))
+                              ) : (
+                                  <div className="text-center py-12 text-slate-400 text-sm">
+                                      <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                      暂无提取的图片
+                                  </div>
+                              )}
+                          </div>
+                      </ScrollArea>
+                  </TabsContent>
+              </Tabs>
+          </div>
+      )}
+      
+      {/* 右侧预览面板 */}
+      {previewPanelOpen && previewData && (
+         <div className="fixed top-[64px] right-0 bottom-0 w-[800px] bg-white shadow-2xl z-40 border-l animate-in slide-in-from-right duration-300 flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b bg-slate-50">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <Button variant="ghost" size="sm" onClick={() => {
+                    setPreviewPanelOpen(false);
+                    setResourcePanelOpen(true);
+                }} className="mr-2 text-slate-500 hover:text-slate-800">
+                   ← 返回列表
+                </Button>
+                <div className="h-4 w-[1px] bg-slate-300 mx-1"></div>
+                {previewData.type === 'image' ? <FileText className="w-5 h-5 text-blue-600 shrink-0"/> : <Edit3 className="w-5 h-5 text-green-600 shrink-0"/>}
+                <h3 className="font-medium text-slate-800 truncate" title={previewData.name}>
+                  {previewData.name}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                 {previewData.type === 'table' && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                        onClick={() => {
+                            const agentUserId = searchParams.get('agentUserId');
+                            const taskId = searchParams.get('taskId');
+                            // 提取文件名
+                            const docName = previewData.name;
+                            // 这里的 url 已经是 /save/... 格式，可以直接用作 docUrl
+                            const docUrl = previewData.url;
+                            
+                            const editUrl = `/excel-editor?docUrl=${encodeURIComponent(docUrl)}&docName=${encodeURIComponent(docName)}&agentUserId=${agentUserId}&taskId=${taskId}`;
+                            window.open(editUrl, '_blank');
+                        }}
+                    >
+                        <Edit3 className="w-4 h-4 mr-1" />
+                        编辑表格
+                    </Button>
+                 )}
+                 <Button variant="ghost" size="icon" onClick={() => setPreviewPanelOpen(false)}>
+                    <X className="w-5 h-5 text-slate-500 hover:text-slate-700" />
+                 </Button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-hidden relative bg-slate-50/50 p-6 flex items-center justify-center">
+                {previewData.type === 'image' ? (
+                  <ImagePreview url={previewData.url} alt={previewData.name} />
+                ) : (
+                  <div className="w-full h-full bg-white rounded-lg shadow-sm border overflow-hidden">
+                     {/* 这里的 URL 如果是 excel-editor 开头，则用 iframe 加载 excel 编辑器，否则可能是静态预览 */}
+                     {previewData.url.startsWith('/excel-editor') ? (
+                       <iframe 
+                          src={previewData.url} 
+                          className="w-full h-full border-0"
+                          title="Table Preview"
+                       />
+                     ) : (
+                       <ExcelPreview url={previewData.url} />
+                     )}
+                  </div>
+                )}
+            </div>
+         </div>
+      )}
     </>
       )}
     </div>

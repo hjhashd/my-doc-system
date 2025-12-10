@@ -26,6 +26,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CategoryList } from "@/components/extraction/category-list"
+import { ValueDisplayCell } from "@/components/extraction/value-display-cell"
+import { ExtractionProgress } from "@/components/extraction/extraction-progress"
+import { useSchemaGeneration } from "@/hooks/use-schema-generation"
+import { useExtraction } from "@/hooks/use-extraction"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,7 +64,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { toast } from "sonner"
+import { feedback } from "@/lib/feedback"
 
 // Types
 interface SchemaField {
@@ -74,117 +78,12 @@ interface SchemaCategory {
   fields: SchemaField[];
 }
 
-// ----------------------------------------------------------------------------
-// 优化组件：长文本展示单元格 (带复制功能)
-// ----------------------------------------------------------------------------
-const ValueDisplayCell = ({ value }: { value: any }) => {
-  const [copied, setCopied] = useState(false)
-  
-  if (!value || (Array.isArray(value) && value.length === 0) || value === "") {
-    return (
-       <Badge variant="outline" className="text-muted-foreground bg-muted/50 border font-normal">
-         {Array.isArray(value) ? "等待提取..." : "空值"}
-       </Badge>
-    )
-  }
-
-  const stringValue = String(value)
-  const isLongText = stringValue.length > 30
-
-  const handleCopy = () => {
-    // 检查 clipboard API 是否可用
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(stringValue)
-        .then(() => {
-          setCopied(true)
-          toast.success("内容已复制")
-          setTimeout(() => setCopied(false), 2000)
-        })
-        .catch(err => {
-          console.error('复制失败:', err)
-          // 降级方案：使用传统方法
-          fallbackCopyToClipboard(stringValue)
-          setCopied(true)
-          toast.success("内容已复制")
-          setTimeout(() => setCopied(false), 2000)
-        })
-    } else {
-      // 降级方案：使用传统方法
-      fallbackCopyToClipboard(stringValue)
-      setCopied(true)
-      toast.success("内容已复制")
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
-
-  // 降级复制方案
-  const fallbackCopyToClipboard = (text: string) => {
-    const textArea = document.createElement("textarea")
-    textArea.value = text
-    textArea.style.position = "fixed"
-    textArea.style.left = "-999999px"
-    textArea.style.top = "-999999px"
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-  }
-
-  return (
-    <div className="flex items-center gap-2 max-w-full">
-       <span className="relative flex h-2 w-2 shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-       </span>
-       
-       {isLongText ? (
-         <Popover>
-           <PopoverTrigger asChild>
-             <div className="group flex items-center gap-2 cursor-pointer hover:bg-muted/10 p-1.5 rounded-md transition-colors border border-transparent hover:border">
-                <span className="font-mono text-sm text-foreground truncate max-w-[200px] xl:max-w-[300px]" title="点击查看完整内容">
-                  {stringValue}
-                </span>
-                <Maximize2 className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-             </div>
-           </PopoverTrigger>
-           <PopoverContent className="w-[400px] p-0" align="start">
-             <div className="bg-muted/50 border-b px-4 py-2 flex justify-between items-center">
-                <span className="text-xs font-semibold text-muted-foreground">完整内容</span>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleCopy}>
-                  {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-                </Button>
-             </div>
-             <div className="p-4 max-h-[300px] overflow-y-auto bg-background text-sm font-mono whitespace-pre-wrap break-all text-foreground leading-relaxed">
-               {stringValue}
-             </div>
-           </PopoverContent>
-         </Popover>
-       ) : (
-         <div className="group flex items-center gap-2">
-            <span className="font-mono text-sm text-foreground bg-emerald-50/50 px-2 py-1 rounded border border-emerald-100/50">
-              {stringValue}
-            </span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={handleCopy}
-            >
-               {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-            </Button>
-         </div>
-       )}
-    </div>
-  )
-}
-
-
 export default function InformationExtractionPage() {
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [startTime, setStartTime] = useState<number | null>(null)
-  const [elapsedTime, setElapsedTime] = useState<string>("00:00")
+  const [progress, setProgress] = useState(0)
+  const [statusText, setStatusText] = useState("")
   const [schemaData, setSchemaData] = useState<Record<string, any>>({})
   const [taskId, setTaskId] = useState<string>("") 
   
@@ -204,12 +103,33 @@ export default function InformationExtractionPage() {
   const [newFieldDialogOpen, setNewFieldDialogOpen] = useState(false)
   const [newField, setNewField] = useState({ category: '', key: '', value: '' })
 
-  
   // Document Selection State
   const [isDocumentDialogOpen, setIsDocumentDialogOpen] = useState(false)
   const [documents, setDocuments] = useState<any[]>([])
   const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
   const [loadingDocuments, setLoadingDocuments] = useState(false)
+  
+  // Schema generation hook
+  const { handleGenerateSchema, taskId: generatedTaskId } = useSchemaGeneration({
+    document: selectedDocument,
+    onSchemaGenerated: setSchemaData,
+    onProcessingChange: setProcessing,
+    onStartTimeChange: setStartTime,
+    onProgressChange: setProgress,
+    onStatusTextChange: setStatusText
+  })
+  
+  // Extraction hook
+  const { handleSaveSchema } = useExtraction({
+    document: selectedDocument,
+    schemaData,
+    taskId: taskId || generatedTaskId,
+    onSchemaDataChange: setSchemaData,
+    onProcessingChange: setProcessing,
+    onStartTimeChange: setStartTime,
+    onProgressChange: setProgress,
+    onStatusTextChange: setStatusText
+  })
   
   // Load documents when dialog opens
   useEffect(() => {
@@ -229,7 +149,7 @@ export default function InformationExtractionPage() {
       }
     } catch (error) {
       console.error(error)
-      toast.error("无法加载文档列表")
+      feedback.error("无法加载文档列表")
     } finally {
       setLoadingDocuments(false)
     }
@@ -239,92 +159,9 @@ export default function InformationExtractionPage() {
     setSelectedDocument(doc)
     setIsDocumentDialogOpen(false)
     setTaskId(doc.id) 
-    toast.success(`已选择文档: ${doc.name}`)
+    feedback.success(`已选择文档: ${doc.name}`)
     await handleGenerateSchema(doc)
   }
-
-  const handleGenerateSchema = async (doc: any) => {
-    setProcessing(true)
-    setStartTime(Date.now())
-    setSchemaData({}) 
-    
-    try {
-      const agentUserId = 123; 
-      const currentTaskId = doc.id;
-      const physicalName = doc.physicalName || doc.name;
-      
-      const contentFileHostPath = `/home/cqj/my-doc-system-uploads/save/${agentUserId}/${currentTaskId}/${physicalName}`;
-      const outputJsonDirHost = "/root/zzp/langextract-main/zzpextract/generater_json"; 
-      
-      const res = await fetch('/api/extraction/schema/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: currentTaskId,
-          status: 0,
-          agentUserId: agentUserId,
-          content_file: contentFileHostPath,
-          schema_map_file: outputJsonDirHost
-        })
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(`Failed to start schema generation: ${errorData.error || 'Unknown error'}`);
-      }
-      
-      toast.info("正在分析文档生成Schema...")
-
-      let attempts = 0;
-      const maxAttempts = 30; 
-      
-      const pollSchema = async () => {
-        try {
-          const schemaRes = await fetch(`/api/extraction/schema?taskId=${currentTaskId}&type=generated`)
-          if (schemaRes.ok) {
-             const data = await schemaRes.json()
-             if (Object.keys(data).length > 0) {
-               setSchemaData(data)
-               toast.success("Schema生成完毕")
-               return true
-             }
-          }
-        } catch (e) { console.error(e) }
-        return false
-      }
-
-      const interval = setInterval(async () => {
-        attempts++;
-        const success = await pollSchema();
-        if (success || attempts >= maxAttempts) {
-           clearInterval(interval)
-           setProcessing(false)
-           setStartTime(null)
-           if (!success) toast.error("Schema生成超时，请重试")
-        }
-      }, 2000)
-
-    } catch (error) {
-      console.error(error)
-      toast.error("Schema生成失败")
-      setProcessing(false)
-      setStartTime(null)
-    }
-  }
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (processing && startTime) {
-      interval = setInterval(() => {
-        const now = Date.now()
-        const diff = Math.floor((now - startTime) / 1000)
-        const minutes = Math.floor(diff / 60).toString().padStart(2, '0')
-        const seconds = (diff % 60).toString().padStart(2, '0')
-        setElapsedTime(`${minutes}:${seconds}`)
-      }, 1000)
-    }
-    return () => clearInterval(interval)
-  }, [processing, startTime])
 
   // Process data into categories for display
   const categories = useMemo(() => {
@@ -384,7 +221,7 @@ export default function InformationExtractionPage() {
     }
     
     if (updatedSchema[selectedCategory][newField.key]) {
-      toast.error("该字段已存在")
+      feedback.error("该字段已存在")
       return
     }
 
@@ -392,7 +229,7 @@ export default function InformationExtractionPage() {
     setSchemaData(updatedSchema)
     setNewField({ category: '', key: '', value: '' })
     setNewFieldDialogOpen(false)
-    toast.success("字段添加成功")
+    feedback.success("字段添加成功")
   }
 
   const handleConfirmDelete = () => {
@@ -429,7 +266,7 @@ export default function InformationExtractionPage() {
     setSchemaData(updatedSchema)
     setDeleteConfirmOpen(false)
     setDeleteTarget(null)
-    toast.success(deletedCount > 1 ? `已删除 ${deletedCount} 个字段` : "字段已删除")
+    feedback.success(deletedCount > 1 ? `已删除 ${deletedCount} 个字段` : "字段已删除")
   }
 
   const initiateDelete = (id: string) => {
@@ -455,7 +292,7 @@ export default function InformationExtractionPage() {
      const categoryData = updatedSchema[selectedCategory]
      
      if (categoryData[newKey]) {
-       toast.error("该字段名已存在")
+       feedback.error("该字段名已存在")
        return
      }
      
@@ -465,104 +302,7 @@ export default function InformationExtractionPage() {
      
      setSchemaData(updatedSchema)
      setEditingField(null)
-     toast.success("字段修改成功")
-  }
-
-  const handleSaveSchema = async () => {
-    if (!selectedDocument) {
-      toast.error("请先选择一个文档")
-      return
-    }
-
-    setProcessing(true)
-    setStartTime(Date.now())
-    
-    try {
-      const agentUserId = 123; 
-      const currentTaskId = taskId || selectedDocument.id;
-      const physicalName = selectedDocument.physicalName || selectedDocument.name;
-      
-      // Step 1: 保存逻辑 (这里直接保留了你的原始逻辑，只是不再展示UI)
-      const resSaveSchema = await fetch('/api/debug/check-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: currentTaskId,
-          schemaData: schemaData
-        })
-      })
-      
-      if (!resSaveSchema.ok) throw new Error('Failed to save schema data')
-      const saveResult = await resSaveSchema.json()
-      if (!saveResult.success) throw new Error('Failed to save schema data')
-      
-      toast.info("Schema已保存，开始智能抽取...")
-      
-      // Step 2: 启动抽取
-      const contentFileHostPath = `/home/cqj/my-doc-system-uploads/save/${agentUserId}/${currentTaskId}/${physicalName}`;
-      const schemaFileHostPath = `/root/zzp/langextract-main/zzpextract/extractenti_json/${agentUserId}/${currentTaskId}.json`;
-      const outputJsonDirHost = "/root/zzp/langextract-main/zzpextract/output"; 
-
-      const resExtract = await fetch('/api/extraction/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: currentTaskId,
-          status: 0,
-          agentUserId: agentUserId,
-          content: contentFileHostPath, 
-          schema_map: schemaFileHostPath, 
-          output_json_file: outputJsonDirHost
-        })
-      })
-
-      if (!resExtract.ok) throw new Error('Failed to start extraction')
-      
-      toast.success("AI 正在读取文档...")
-
-      // Step 3: 轮询结果
-      const pollResult = async () => {
-        let attempts = 0;
-        const maxAttempts = 20; 
-        
-        const intervalId = setInterval(async () => {
-          attempts++;
-          try {
-            const res = await fetch(`/api/extraction/schema?taskId=${currentTaskId}&type=result`);
-            
-            if (res.status === 404) return;
-
-            if (res.ok) {
-              const resultData = await res.json();
-              if (resultData && Object.keys(resultData).length > 0) {
-                clearInterval(intervalId);
-                setSchemaData(resultData);
-                setProcessing(false);
-                setStartTime(null);
-                toast.success("🎉 提取完成！数据已更新");
-                return;
-              }
-            }
-            
-            if (attempts >= maxAttempts) {
-              clearInterval(intervalId);
-              setProcessing(false);
-              setStartTime(null);
-              toast.error("提取时间较长，请稍后刷新页面查看");
-            }
-          } catch (e) {
-            console.error("轮询出错", e);
-          }
-        }, 3000); 
-      };
-
-      pollResult();
-
-    } catch (error) {
-      console.error("Error in handleSaveSchema:", error)
-      toast.error(`抽取任务启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      setProcessing(false)
-    }
+     feedback.success("字段修改成功")
   }
 
   // ----------------------------------------------------------------------
@@ -617,12 +357,15 @@ export default function InformationExtractionPage() {
                </DialogContent>
             </Dialog>
 
-            {processing && (
-               <div className="flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-lg border border-primary/20 animate-pulse">
-                 <Clock className="w-4 h-4" />
-                 <span className="font-medium text-sm tabular-nums">{elapsedTime}</span>
-               </div>
-            )}
+            <div className="flex items-center gap-2">
+              {processing && (
+                <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-full border border-primary/20 animate-pulse">
+                  <div className="w-2 h-2 rounded-full bg-current"></div>
+                  <span className="text-sm font-medium">处理中</span>
+                </div>
+              )}
+            </div>
+            
             <Button
                     onClick={handleSaveSchema}
                     disabled={processing || loading || !selectedDocument}
@@ -811,7 +554,7 @@ export default function InformationExtractionPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                               {/* 优化后的值显示组件 */}
+                               {/* 使用拆分后的值显示组件 */}
                                <ValueDisplayCell value={field.value} />
                             </TableCell>
                             <TableCell className="text-right pr-6">
@@ -905,12 +648,21 @@ export default function InformationExtractionPage() {
                setDeleteConfirmOpen(false)
                setDeleteTarget(null)
             }}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} variant="destructive">
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               确认删除
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* 右下角进度条 */}
+      <ExtractionProgress 
+        progress={progress}
+        statusText={statusText}
+        isVisible={processing}
+        type={taskId ? "extraction" : "schema"}
+        startTime={startTime}
+      />
     </div>
   )
 }

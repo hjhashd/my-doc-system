@@ -6,6 +6,7 @@ import { Analytics } from "@vercel/analytics/react"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Suspense } from "react"
 import { AppShell } from "@/components/app-shell"
+import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
 const dmSans = DM_Sans({
@@ -39,6 +40,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
             <AppShell>{children}</AppShell>
+            <Toaster />
           </ThemeProvider>
         </Suspense>
         <AnalyticsWrapper />

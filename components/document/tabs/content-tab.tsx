@@ -11,6 +11,7 @@ import { Type, Grid3X3, FileImage, Filter, Copy, Eye, Download, ImageIcon, Layou
 import { ContentDetailItem, DocumentDetails } from "@/types/document"
 import { ImagePreviewModal } from "@/components/document/image-preview-modal"
 import { TextPreviewModal, copyToClipboard } from "@/components/document/text-preview-modal"
+import { TablePreviewModal } from "@/components/document/table-preview-modal"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -19,12 +20,13 @@ import { Check } from "lucide-react"
 interface ContentTabProps {
   details: DocumentDetails | null;
   loading: boolean;
-  onTableClick?: (tablePath: string) => void;
+  onTableEdit?: (tablePath: string) => void;
+  onTablePreview?: (tablePath: string) => string; // Return preview URL
 }
 
 type ListStyle = 'professional' | 'compact';
 
-export function ContentTab({ details, loading, onTableClick }: ContentTabProps) {
+export function ContentTab({ details, loading, onTableEdit, onTablePreview }: ContentTabProps) {
   const [contentType, setContentType] = useState("all")
   const [listStyle, setListStyle] = useState<ListStyle>("compact")
   const [selectedImage, setSelectedImage] = useState<ContentDetailItem | null>(null)
@@ -32,6 +34,9 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
   
   const [selectedText, setSelectedText] = useState<ContentDetailItem | null>(null)
   const [isTextModalOpen, setIsTextModalOpen] = useState(false)
+
+  const [selectedTable, setSelectedTable] = useState<{url: string, name: string, path: string} | null>(null)
+  const [isTableModalOpen, setIsTableModalOpen] = useState(false)
   
   // 统一分页状态
   const [currentPage, setCurrentPage] = useState(1)
@@ -47,6 +52,21 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
     setIsTextModalOpen(true)
   }
 
+  const handleTableClick = (tablePath: string, tableName: string) => {
+    if (onTablePreview) {
+      const url = onTablePreview(tablePath)
+      setSelectedTable({
+        url,
+        name: tableName,
+        path: tablePath
+      })
+      setIsTableModalOpen(true)
+    } else if (onTableEdit) {
+      // Fallback to direct edit if no preview handler
+      onTableEdit(tablePath)
+    }
+  }
+
   const handleCloseImageModal = () => {
     setIsImageModalOpen(false)
     setSelectedImage(null)
@@ -55,6 +75,11 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
   const handleCloseTextModal = () => {
     setIsTextModalOpen(false)
     setSelectedText(null)
+  }
+
+  const handleCloseTableModal = () => {
+    setIsTableModalOpen(false)
+    setSelectedTable(null)
   }
 
   // 获取筛选后的所有内容
@@ -142,8 +167,12 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
     setCurrentPage(1)
   }
 
-  if (loading) return <div className="p-8 text-center text-muted-foreground animate-pulse">正在提取文档内容...</div>
-  if (!details) return <div className="p-8 text-center text-muted-foreground">暂无内容详情，请选择已完成的文档</div>
+  if (loading) return <div className="p-10 text-center text-muted-foreground animate-pulse">正在提取文档内容，请稍候...</div>
+  if (!details) return (
+    <div className="p-10 text-center text-muted-foreground">
+      暂无内容详情，请点击“智能解析”。已完成的文件生成的内容会显示在此。
+    </div>
+  )
 
   // 获取筛选后的内容和分页数据
   const filteredContent = getFilteredContent()
@@ -207,7 +236,7 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
                     item={item} 
                     onImageClick={handleImageClick} 
                     onTextClick={handleTextClick}
-                    onTableClick={onTableClick} 
+                    onTableClick={(path) => handleTableClick(path, item.content || '未命名表格')} 
                     style={listStyle} 
                   />
                 ))}
@@ -240,6 +269,19 @@ export function ContentTab({ details, loading, onTableClick }: ContentTabProps) 
         isOpen={isTextModalOpen}
         onClose={handleCloseTextModal}
         textItem={selectedText}
+      />
+
+      {/* Table Preview Modal */}
+      <TablePreviewModal 
+        isOpen={isTableModalOpen}
+        onClose={handleCloseTableModal}
+        tableUrl={selectedTable?.url || ''}
+        tableName={selectedTable?.name || ''}
+        onEdit={() => {
+            if (selectedTable?.path && onTableEdit) {
+                onTableEdit(selectedTable.path)
+            }
+        }}
       />
     </div>
   )

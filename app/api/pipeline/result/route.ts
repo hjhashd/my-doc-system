@@ -121,6 +121,97 @@ export async function GET(req: NextRequest) {
     const fileContent = await fs.readFile(resultFilePath, 'utf-8')
     const jsonData = JSON.parse(fileContent)
 
+    // 统计元素数量
+    let textCount = 0;
+    let tableCount = 0;
+    let imageCount = 0;
+
+    if (Array.isArray(jsonData) || (jsonData.blocks && Array.isArray(jsonData.blocks))) {
+        const blocks = Array.isArray(jsonData) ? jsonData : jsonData.blocks;
+
+        // 统计文本
+        textCount = blocks.filter((item: any) => 
+            item.content && 
+            !item.content.includes('🖼️ 点击查看高清原图') && !item.content.startsWith('📊 点击编辑关联表格') &&
+            !item.content.includes('🖼️ 点击查看图片') && !item.content.startsWith('📊 点击编辑表格')
+        ).length;
+
+        // 统计表格
+        tableCount = blocks.filter((item: any) => 
+            item.content && (item.content.startsWith('📊 点击编辑关联表格') || item.content.startsWith('📊 点击编辑表格'))
+        ).length;
+
+        // 统计图片
+        imageCount = blocks.filter((item: any) => 
+            item.content && (item.content.includes('🖼️ 点击查看高清原图') || item.content.includes('🖼️ 点击查看图片'))
+        ).length;
+
+        // 计算最大页数 (查找PDF-LOC标记)
+        let maxPage = 0;
+        blocks.forEach((item: any) => {
+            if (item.content) {
+                const pdfLocMatch = item.content.match(/\[#PDF-LOC:(\d+)#\]/);
+                if (pdfLocMatch) {
+                    const page = parseInt(pdfLocMatch[1]);
+                    if (!isNaN(page) && page > maxPage) {
+                        maxPage = page;
+                    }
+                }
+            }
+        });
+        // 如果没有找到PDF-LOC，默认为1页 (或者0，取决于需求，这里设为1如果内容不为空)
+        if (maxPage === 0 && blocks.length > 0) {
+             maxPage = 1;
+        }
+
+        // 尝试读取并更新 metadata.json
+        const metadataPath = path.join(resultDir, 'metadata.json');
+        try {
+            let meta: any = {};
+            if (await fs.access(metadataPath).then(() => true).catch(() => false)) {
+                const metaContent = await fs.readFile(metadataPath, 'utf-8');
+                meta = JSON.parse(metaContent);
+            }
+            
+            // 计算文件大小 (如果 metadata 中没有或者需要更新)
+            let fileSizeKB = meta.file_size_kb;
+            if (!fileSizeKB && meta.physicalFile) {
+                 try {
+                    const physicalFilePath = path.join(resultDir, meta.physicalFile);
+                    const stats = await fs.stat(physicalFilePath);
+                    // 转换为数字类型，保留两位小数
+                    fileSizeKB = parseFloat((stats.size / 1024).toFixed(2));
+                 } catch(e) {}
+            }
+
+            // 检查是否有变更
+            const needsUpdate = 
+                !meta.element_counts || 
+                meta.element_counts.text !== textCount || 
+                meta.element_counts.tables !== tableCount || 
+                meta.element_counts.images !== imageCount ||
+                meta.pages !== maxPage ||
+                (fileSizeKB && meta.file_size_kb !== fileSizeKB);
+
+            if (needsUpdate) {
+                meta.element_counts = {
+                    text: textCount,
+                    tables: tableCount,
+                    images: imageCount
+                };
+                meta.pages = maxPage;
+                if (fileSizeKB) {
+                    meta.file_size_kb = fileSizeKB;
+                }
+                
+                await fs.writeFile(metadataPath, JSON.stringify(meta, null, 2), 'utf-8');
+                console.log(`已更新 metadata.json 统计信息: ${metadataPath}`);
+            }
+        } catch (metaError) {
+            console.error('更新 metadata.json 失败:', metaError);
+        }
+    }
+
     return NextResponse.json({ ok: true, data: jsonData })
 
   } catch (error: any) {

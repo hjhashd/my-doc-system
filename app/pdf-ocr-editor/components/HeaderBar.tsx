@@ -26,35 +26,10 @@ interface HeaderBarProps {
 }
 
 export function HeaderBar({ fileName, isPdfFile, viewMode, onChangeViewMode, onNextClick, elapsedTime }: HeaderBarProps) {
-  const [isVisible, setIsVisible] = useState(true)
-  const [lastScrollY, setLastScrollY] = useState(0)
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY
-      // 只有当滚动超过一定距离（例如 64px）时才启用隐藏逻辑
-      // 向下滚动隐藏，向上滚动显示
-      if (currentScrollY > 64) {
-        if (currentScrollY > lastScrollY) {
-          setIsVisible(false)
-        } else {
-          setIsVisible(true)
-        }
-      } else {
-        setIsVisible(true)
-      }
-      setLastScrollY(currentScrollY)
-    }
-
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
-  }, [lastScrollY])
-
   return (
     <header 
       className={cn(
-        "h-16 px-6 flex items-center justify-between bg-gradient-to-r from-blue-100/90 via-blue-200/40 to-blue-100/90 backdrop-blur-md border-b border-blue-200/50 sticky top-0 z-20 shrink-0 shadow-sm transition-transform duration-300 ease-in-out",
-        !isVisible && "-translate-y-full"
+        "h-16 px-6 flex items-center justify-between bg-gradient-to-r from-blue-100/90 via-blue-200/40 to-blue-100/90 backdrop-blur-md border-b border-blue-200/50 fixed top-0 left-0 right-0 z-20 shrink-0 shadow-sm"
       )}
     >
       <div className="flex items-center gap-4">

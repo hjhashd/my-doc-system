@@ -11,6 +11,7 @@ export interface DocumentStatistics {
   images_count: number;
   total_pages: number;
   file_size_kb: number;
+  processing_time_seconds?: number; // 处理时间（秒）
   // 可以根据实际后端返回扩展更多字段
   [key: string]: any;
 }
@@ -18,6 +19,7 @@ export interface DocumentStatistics {
 export interface Document {
   id: string;
   name: string;
+  customName?: string; // 用户自定义名称
   physicalName?: string; // 物理文件名
   type: string;
   uploadDate: string;
